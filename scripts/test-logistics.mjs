@@ -8,7 +8,7 @@ const THREE=require('../dist/vendor/three.min.js');
 const Arm=require('../dist/factory-arm.js');
 const Logistics=require('../dist/factory-logistics.js');
 const Layout=require('../dist/factory-layout.js');
-const doc=await new NodeIO().registerExtensions(ALL_EXTENSIONS).read(fileURLToPath(new URL('../dist/models/amr-rigged.glb',import.meta.url)));
+const doc=await new NodeIO().registerExtensions(ALL_EXTENSIONS).read(fileURLToPath(new URL('../dist/models/mg400-rigged.glb',import.meta.url)));
 function nodeTree(n){const o=new THREE.Group();o.name=n.getName();o.position.fromArray(n.getTranslation());o.quaternion.fromArray(n.getRotation());o.scale.fromArray(n.getScale());for(const child of n.listChildren())o.add(nodeTree(child));return o;}
 const source=new THREE.Group();for(const n of doc.getRoot().listScenes()[0].listChildren())source.add(nodeTree(n));
 const scene=new THREE.Scene(),material=new THREE.MeshBasicMaterial();
@@ -21,6 +21,7 @@ const events=[];
 const sim=Logistics.create({scene,live,robots,docks,colors,makeItem:()=>new THREE.Mesh(new THREE.BoxGeometry(.5,.5,.5),material),beltY:1.21,lineLength:36,parkZ:15.5,feeders,rackSlots:warehouse.rackSlots,cellX:warehouse.cellX,onRead:()=>{},onEvent:e=>events.push(e)});
 function distanceToFence(p,f){const dx=f.x2-f.x1,dz=f.z2-f.z1,t=Math.max(0,Math.min(1,((p.x-f.x1)*dx+(p.z-f.z1)*dz)/(dx*dx+dz*dz)));return Math.hypot(p.x-f.x1-t*dx,p.z-f.z1-t*dz);}
 const world=new THREE.Vector3(),expected=new THREE.Vector3();
+const linkTip=new THREE.Vector3(),wristPin=new THREE.Vector3(),up=new THREE.Vector3();
 // Test the authored GLB hierarchy, not a substitute kinematic skeleton.
 for(const a of robots){for(const target of [Arm.CARRY,new THREE.Vector3(0,1.21,1.05),new THREE.Vector3(0,1.33,.84),new THREE.Vector3(0,1.07,1.05)]){
   assert.equal(Arm.pose(a.arm,target,0).reachable,true,'reachable task pose');
@@ -44,7 +45,16 @@ for(const dt of [.05,.15]){
         a.cargo.getWorldPosition(world);expected.copy(a.arm.goal);a.g.localToWorld(expected);
         assert.ok(world.distanceTo(expected)<.002,'held carton follows wrist exactly');holdSamples++;
       }
-      if(a.arm){assert.equal(Arm.pose(a.arm,a.arm.goal,a.arm.opening).reachable,true,'every interpolated pose is reachable');}
+      if(a.arm){
+        const result=Arm.pose(a.arm,a.arm.goal,a.arm.opening);
+        assert.equal(result.reachable,true,'every interpolated pose is reachable within MG400 joint limits');
+        scene.updateMatrixWorld(true);
+        linkTip.set(0,0,.175);a.arm.joints.ParallelForearm.localToWorld(linkTip);
+        wristPin.set(0,.034472,.028925442);a.arm.joints.LevelWrist.localToWorld(wristPin);
+        assert.ok(linkTip.distanceTo(wristPin)<.00001,'parallel forearm closes on the wrist pin');
+        up.set(0,1,0).transformDirection(a.arm.joints.LevelWrist.matrixWorld);
+        assert.ok(up.y>.999999,'MG400 tool head remains vertical throughout transfer');
+      }
     }
     for(let i=1;i<sim.state.items.length;i++)assert.ok(sim.state.items[i-1].mesh.position.x-sim.state.items[i].mesh.position.x>=.7999,'queued boxes do not overlap');
     for(const cell of warehouse.cellX.keys()){
