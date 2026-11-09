@@ -1,0 +1,27 @@
+Gongduino factory — third-party 3D models
+
+All three source models are released under CC0 1.0 Universal:
+https://creativecommons.org/publicdomain/zero/1.0/
+
+amr.glb — AMR with arm, Innerscene (original generic design)
+amr-rigged.glb — same source, separated into yaw, shoulder, elbow, wrist and finger
+joints for live pick-and-place. Wrist shortened and a gripper cross-slide added.
+https://www.innerscene.com/tools/library/3d-parts/amr-with-arm-6dd4556c
+Source: https://files.innerscene.com/library/amr-with-arm-6dd4556c/1acce422a5bf1424a275/amr-with-arm.glb
+
+truck.glb — 7.5 t class box truck with roll-up door, Innerscene (original generic design)
+https://www.innerscene.com/tools/library/3d-parts/7-5-t-class-box-truck-with-roll-up-door-12baea66
+Source: https://files.innerscene.com/library/7-5-t-class-box-truck-with-roll-up-door-12baea66/286c7a3a7174b81d13ed/7-5-t-class-box-truck-with-roll-up-door.glb
+
+conveyor.glb — Powered belt conveyor, 4 m straight, 3D Assets
+https://3dassets.dev/assets/parcel-depot-and-sorting-hall-parcel-depot-and-sorting-87ae9888
+Source: https://cdn.3dassets.dev/assets/34783/v1/model.glb
+Source page reports AI-assisted creation (Claude Opus 5).
+
+Adaptations: textures resized to a maximum of 512 px, duplicate geometry removed,
+static meshes joined by material, vertex data quantized, and scene scale/orientation
+adjusted. Source conveyor roller animation retained. Models are visualization assets,
+not manufacturer CAD or manufacturing specifications.
+
+Three.js r128 and its loaders/controls/environment use the MIT license.
+See ../vendor/THREE-LICENSE.txt.
