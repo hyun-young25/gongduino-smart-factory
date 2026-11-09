@@ -13,7 +13,8 @@
 - 파란 랙, 노란 안전펜스, 셀별 투입 컨베이어와 메인 컨베이어
 - 로봇 4대가 랙의 실제 박스 24개를 꺼내 컨베이어에 투입
 - 출고 로봇 4대가 박스를 집어 서울·대전·부산 도크로 운반
-- 관절형 로봇팔과 집게, 이동·집기·놓기 동작, 박스 추적
+- 제공된 DOBOT MG400 CAD를 관절별로 분리한 로봇팔 8대
+- J1~J4 4축과 평행 링크 연동, 집게 개폐, 이동·집기·놓기와 박스 추적
 - 재생/일시정지, 속도 변경, 랙 재입고, 통계 초기화, 카메라 보기
 - 별도 색상분류 시뮬레이터
 
@@ -66,6 +67,18 @@ npm run models:build
 
 다운로드 도구는 원본의 SHA-256을 확인합니다. 원본은 `model-sources/`에 저장되며 Git에서 제외됩니다.
 
+## DOBOT MG400 재생성
+
+`dist/models/mg400-rigged.glb`는 제공된 STL의 실제 표면을 9개 부품으로 나눈 모델입니다. 제조사 ROS의 부품별 표면을 분리 기준으로 사용하고 회전축과 평행 링크를 재구성했습니다. 원본 CAD 파일 자체는 저장소에 포함하지 않았습니다. 원본 해시는 `dist/models/MG400-PROVENANCE.json`에 있습니다.
+
+```sh
+python -m pip install numpy scipy trimesh fast-simplification
+python scripts/segment-mg400.py "/path/to/DOBOT MG400.stl" model-sources/mg400
+node scripts/rig-mg400.mjs model-sources/mg400/parts.json
+```
+
+공장에서는 MG400을 균일하게 3배 확대해 이동 플랫폼에 장착하고 박스용 집게를 추가했습니다. 박스 인계 중 관절 범위, 집게 위치, 평행 링크의 연결 및 손목 수평 유지도 검사합니다. 재구성한 시각화 모델이며 실제 로봇 제어·충돌 검증용 모델은 아닙니다.
+
 ## 정적 호스팅
 
 GitHub Pages는 `.github/workflows/pages.yml`로 자동 배포됩니다. `main` 브랜치의 `dist/`, 페이지 검증 스크립트 또는 배포 설정을 수정하면 검증 후 게시됩니다. Actions의 **Deploy factory to GitHub Pages → Run workflow**에서 수동 배포할 수도 있습니다.
@@ -74,4 +87,4 @@ GitHub Pages는 `.github/workflows/pages.yml`로 자동 배포됩니다. `main` 
 
 ## 외부 자산
 
-3D 모델의 출처와 CC0 안내는 [ATTRIBUTION.txt](dist/models/ATTRIBUTION.txt)를 확인하세요. 모델은 시각화용이며 제조사 CAD가 아닙니다. Three.js r128과 예제 도구는 MIT, QR Code Generator 1.4.4도 MIT입니다. 해당 저작권·라이선스 고지를 `dist/vendor/`에 포함했습니다. 이 저장소의 공개 여부와 별개로, 프로젝트 자체 코드의 재사용 라이선스는 아직 지정하지 않았습니다.
+3D 모델의 출처와 라이선스 안내는 [ATTRIBUTION.txt](dist/models/ATTRIBUTION.txt)를 확인하세요. MG400은 제공된 제조사 CAD를 바탕으로 했으며, 범용 이동 플랫폼·트럭·컨베이어의 CC0 표기와 구분됩니다. Three.js r128과 예제 도구는 MIT, QR Code Generator 1.4.4도 MIT입니다. 해당 저작권·라이선스 고지를 `dist/vendor/`에 포함했습니다. 이 저장소의 공개 여부와 별개로, 프로젝트 자체 코드의 재사용 라이선스는 아직 지정하지 않았습니다.
