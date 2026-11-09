@@ -246,13 +246,14 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--f-
     <div class="section">
       <p id="modelStatus" role="status">장비 모델 불러오는 중…</p>
       <details class="model-sources">
-        <summary>3D 모델 출처 · CC0</summary>
+        <summary>3D 모델 출처</summary>
         <ul>
-          <li><a href="https://www.innerscene.com/tools/library/3d-parts/amr-with-arm-6dd4556c" target="_blank" rel="noopener">운반 로봇 · Innerscene</a></li>
+          <li>DOBOT MG400 · 제공된 CAD를 9개 부품으로 분리 · 4축 및 평행 링크 연동</li>
+          <li><a href="https://www.innerscene.com/tools/library/3d-parts/amr-with-arm-6dd4556c" target="_blank" rel="noopener">이동 플랫폼 · Innerscene (CC0)</a></li>
           <li><a href="https://www.innerscene.com/tools/library/3d-parts/7-5-t-class-box-truck-with-roll-up-door-12baea66" target="_blank" rel="noopener">화물차 · Innerscene</a></li>
           <li><a href="https://3dassets.dev/assets/parcel-depot-and-sorting-hall-parcel-depot-and-sorting-87ae9888" target="_blank" rel="noopener">컨베이어 · 3DAssets</a></li>
         </ul>
-        <p>공개된 범용 장비 모델을 공장 배치에 맞춰 조정했습니다.</p>
+        <p>MG400을 공장 크기에 맞춰 3배로 표시하고 집게를 추가했습니다. 실제 장비 제어용 모델은 아닙니다.</p>
       </details>
     </div>
   </aside>
@@ -599,7 +600,7 @@ function replaceConveyors(gltf) {
 }
 let loadedModels = 0;
 Promise.allSettled([
-  ['models/amr-rigged.glb',replaceRobots],
+  ['models/mg400-rigged.glb',replaceRobots],
   ['models/truck.glb',replaceTrucks],
   ['models/conveyor.glb',replaceConveyors],
 ].map(([url,install]) => modelLoader.loadAsync(url).then(gltf => {
@@ -610,7 +611,7 @@ Promise.allSettled([
   const failed = results.filter(r=>r.status==='rejected').length;
   document.getElementById('modelStatus').textContent = failed
     ? `장비 모델 ${loadedModels}/3 적용 · 일부 장비는 기본 모형으로 표시됩니다. 새로고침해 주세요.`
-    : '랙 로봇 4대 · 출하 로봇 4대 · 화물차 3대 — 3D 모델 적용 완료';
+    : 'MG400 8대 · 4축 관절 및 평행 링크 연동 · 3D 모델 적용 완료';
 });
 const logistics = FactoryLogistics.create({
   scene,live,robots:agvs,docks:DOCKS,colors:COLORS,makeItem,beltY:BELT_Y,lineLength:LINE_LEN,parkZ:PARK_Z,

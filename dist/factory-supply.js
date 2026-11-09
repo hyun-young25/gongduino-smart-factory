@@ -18,7 +18,7 @@
       const target=kind==='rack-pick'?local(a,a.job.item.mesh.getWorldPosition(new THREE.Vector3())):local(a,V(a.cellX,1.21,6.4));
       const near=target.clone();near.z*=.8;near.y+=.08;
       const lift=target.clone();lift.y+=.06;
-      const retract=target.clone();retract.z*=.62;retract.y+=.08;
+      const retract=target.clone();retract.z=Math.max(.75,retract.z*.8);retract.y+=.08;
       a.phases=kind==='rack-pick'?[
         {label:'랙 상자로 팔 뻗기',to:near,open:1,duration:.85},
         {label:'랙 집기 위치 맞추기',to:target,open:1,duration:.7},
