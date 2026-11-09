@@ -1,0 +1,17 @@
+[
+  {
+    "name": "amr",
+    "url": "https://files.innerscene.com/library/amr-with-arm-6dd4556c/1acce422a5bf1424a275/amr-with-arm.glb",
+    "sha256": "bf7a1eb2cd263aedb076a4a4cd9dadaf626e0813a18c2a8552750b847f790290"
+  },
+  {
+    "name": "truck",
+    "url": "https://files.innerscene.com/library/7-5-t-class-box-truck-with-roll-up-door-12baea66/286c7a3a7174b81d13ed/7-5-t-class-box-truck-with-roll-up-door.glb",
+    "sha256": "6b983b515ee6bf044489a88cccab0ba4cbdb8d9b873b0c023098f9ecd15f4115"
+  },
+  {
+    "name": "conveyor",
+    "url": "https://cdn.3dassets.dev/assets/34783/v1/model.glb",
+    "sha256": "e02c6b2dbff5a16d545107bbccc71ebe20350a30cb9734562127f1607d18d5df"
+  }
+]
