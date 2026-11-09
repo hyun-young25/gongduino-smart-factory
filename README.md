@@ -2,7 +2,9 @@
 
 브라우저에서 실행하는 Three.js 기반 3D 공장과 색상분류 컨베이어 시뮬레이터입니다.
 
-**[공장 실행하기](https://gongduino-color-conveyor.hyunyoung2026.chatgpt.site)**
+**[공장 실행하기 · GitHub Pages](https://hyun-young25.github.io/gongduino-smart-factory/)**
+
+[기존 배포 링크](https://gongduino-color-conveyor.hyunyoung2026.chatgpt.site)
 
 첫 화면은 공장 전체입니다. **색상분류 컨베이어 → 열기**를 누르면 상세 시뮬레이터로 들어가며, **공장 전체로**를 누르면 메인으로 돌아옵니다.
 
@@ -65,6 +67,8 @@ npm run models:build
 다운로드 도구는 원본의 SHA-256을 확인합니다. 원본은 `model-sources/`에 저장되며 Git에서 제외됩니다.
 
 ## 정적 호스팅
+
+GitHub Pages는 `.github/workflows/pages.yml`로 자동 배포됩니다. `main` 브랜치의 `dist/`, 페이지 검증 스크립트 또는 배포 설정을 수정하면 검증 후 게시됩니다. Actions의 **Deploy factory to GitHub Pages → Run workflow**에서 수동 배포할 수도 있습니다.
 
 `dist/`의 내용 전체를 정적 호스팅에 게시하면 됩니다. 진입 파일은 `index.html`입니다. 상대 경로를 사용하므로 하위 경로에도 게시할 수 있습니다. JavaScript와 모델은 저장소에 포함되어 있으며, Google Fonts에 연결할 수 없으면 시스템 글꼴을 사용합니다.
 
