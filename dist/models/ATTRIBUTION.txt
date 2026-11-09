@@ -1,7 +1,16 @@
 Gongduino factory — third-party 3D models
 
-All three source models are released under CC0 1.0 Universal:
+The three generic source models below are released under CC0 1.0 Universal:
 https://creativecommons.org/publicdomain/zero/1.0/
+
+mg400-rigged.glb — user-supplied DOBOT MG400.stl, segmented into nine CAD parts.
+Four active axes and the coupled parallel linkage are reconstructed for animation.
+Official per-link reference: https://github.com/Dobot-Arm/MG400_ROS
+The output robot geometry comes from the supplied STL, not the reference meshes.
+The existing Innerscene mobile base is retained; the old arm is removed.
+A procedural carton gripper is added. MG400 is displayed at 3x scale in the factory.
+The supplied CAD is NOT covered by the generic models' CC0 statement.
+See MG400-PROVENANCE.json for the source hash and reconstruction details.
 
 amr.glb — AMR with arm, Innerscene (original generic design)
 amr-rigged.glb — same source, separated into yaw, shoulder, elbow, wrist and finger

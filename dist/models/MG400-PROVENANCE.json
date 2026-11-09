@@ -1,0 +1,18 @@
+{
+  "model": "mg400-rigged.glb",
+  "sourceFile": "DOBOT MG400.stl",
+  "sourceSha256": "36b674656149361d2e2f5b25c039dc0a5d3a6e33a2673e87a3b12fd6f6f0a8fc",
+  "sourceTriangles": 257853,
+  "cadTrianglesAfterReduction": 56946,
+  "parts": ["base_link", "link1", "link2_1", "link2_2", "link3_1", "link3_2", "link4_1", "link4_2", "link5"],
+  "reference": "https://github.com/Dobot-Arm/MG400_ROS",
+  "referenceUse": "Per-link surfaces guide segmentation; output geometry comes from the supplied STL. Pivots reconstructed from CAD and the official hierarchy.",
+  "activeAxes": ["J1 base yaw", "J2 shoulder", "J3 forearm", "J4 tool yaw"],
+  "coupledLinks": "Parallel lower link, upper rocker, parallel forearm and level wrist",
+  "units": "metres",
+  "factoryDisplayScale": 3,
+  "mobilePlatform": "Innerscene AMR, CC0; previous arm removed",
+  "gripper": "Procedural visualization gripper",
+  "scope": "Visual animation rig, not an executable hardware controller or validated collision model",
+  "license": "User-supplied DOBOT CAD; no new CC0 or other redistribution license asserted"
+}
