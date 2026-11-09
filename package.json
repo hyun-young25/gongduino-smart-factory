@@ -1,0 +1,22 @@
+{
+  "name": "gongduino-smart-factory",
+  "version": "1.0.0",
+  "private": true,
+  "description": "공두이노 3D 스마트 팩토리와 색상분류 시뮬레이터",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node scripts/serve.mjs",
+    "check": "node scripts/check.mjs",
+    "test": "node scripts/check.mjs && node scripts/test-logistics.mjs",
+    "models:download": "node scripts/download-models.mjs",
+    "models:build": "node scripts/prepare-models.mjs && node scripts/rig-amr.mjs"
+  },
+  "dependencies": {
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/extensions": "^4.5.1",
+    "@gltf-transform/functions": "^4.5.1",
+    "sharp": "^0.35.5"
+  }
+}
