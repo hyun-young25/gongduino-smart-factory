@@ -1,0 +1,1424 @@
+<!doctype html><html lang="ko"><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>공두이노 색상분류 컨베이어</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: 작업대 위 3D 스테이지(좌) + 컨트롤러 패널(우: 상태 → 부품 → 코드 → 시리얼). 좁은 화면에서는 위아래로 쌓임 */
+:root{
+  --bg:#eceeed; --panel:#ffffff; --panel-2:#f4f5f4; --fg:#15191c; --muted:#5b646c; --line:#d8dcdc;
+  --accent:#e1600d; --accent-ink:#ffffff; --hl:rgba(225,96,13,.13);
+  --stage:#dfe3e4; --floor:#eef0f0;
+  --ok:#1d8a47; --warn:#b98000; --bad:#c42a1f;
+  --tk:#8a3fb8; --ts:#1d7a4a; --tc:#7d8790; --tn:#b45309; --tp:#0f6aa8;
+  --f-ui:"IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --f-code:"JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#111417; --panel:#191c20; --panel-2:#1f2328; --fg:#e7eaed; --muted:#98a1aa; --line:#2b3137;
+  --accent:#ff7a2b; --accent-ink:#1a0d04; --hl:rgba(255,122,43,.17);
+  --stage:#1b1f23; --floor:#23272c;
+  --ok:#3fbf70; --warn:#e2ad2b; --bad:#ef5a4c;
+  --tk:#c58af0; --ts:#6fd39a; --tc:#7c8691; --tn:#f0a35e; --tp:#6cb6ff; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111417; --panel:#191c20; --panel-2:#1f2328; --fg:#e7eaed; --muted:#98a1aa; --line:#2b3137;
+  --accent:#ff7a2b; --accent-ink:#1a0d04; --hl:rgba(255,122,43,.17);
+  --stage:#1b1f23; --floor:#23272c;
+  --ok:#3fbf70; --warn:#e2ad2b; --bad:#ef5a4c;
+  --tk:#c58af0; --ts:#6fd39a; --tc:#7c8691; --tn:#f0a35e; --tp:#6cb6ff; color-scheme:dark}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:14px;line-height:1.5}
+*{box-sizing:border-box}
+button,select,input{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.app{height:100%;display:grid;grid-template-rows:auto 1fr;min-height:0}
+.top{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding-block:10px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  border-bottom:1px solid var(--line);background:var(--panel)}
+.brand{display:flex;align-items:baseline;gap:4px 10px;min-width:0;flex-wrap:wrap}
+.brand h1{font-size:17px;font-weight:700;margin:0;letter-spacing:-.01em;text-wrap:balance}
+.brand span{color:var(--muted);font-size:12.5px}
+.factory-link{display:inline-flex;align-items:center;flex-shrink:0;padding:6px 10px;border:1px solid var(--line);border-radius:7px;color:var(--fg);background:var(--panel-2);font-size:12.5px;font-weight:600;text-decoration:none}
+.factory-link:hover{border-color:var(--accent);color:var(--accent)}
+.views{margin-left:auto;display:flex;gap:2px;background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:2px;flex-wrap:wrap}
+.views button{border:0;background:none;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:12.5px;color:var(--muted)}
+.views button[aria-pressed="true"]{background:var(--panel);color:var(--fg);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+
+main{display:grid;grid-template-columns:minmax(0,1fr) 384px;min-height:0}
+.stage{position:relative;min-height:0;background:var(--stage);overflow:hidden}
+.stage canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+.stage canvas:active{cursor:grabbing}
+#labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.tag{position:absolute;left:0;top:0;transform:translate(-50%,-100%);white-space:nowrap;font-size:11.5px;font-weight:600;
+  padding:3px 7px;border-radius:5px;background:color-mix(in srgb,var(--panel) 88%,transparent);border:1px solid var(--line);
+  color:var(--fg);box-shadow:0 2px 6px rgba(0,0,0,.12)}
+.tag::after{content:"";position:absolute;left:50%;bottom:-9px;width:1px;height:8px;background:var(--muted)}
+.tag.sel{border-color:var(--accent);color:var(--accent)}
+
+.hud{position:absolute;top:12px;left:max(12px,env(safe-area-inset-left,0px));display:flex;gap:6px;flex-wrap:wrap;pointer-events:none}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border-radius:999px;font-size:12px;font-weight:600;
+  background:var(--panel);border:1px solid var(--line)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.dot.ok{background:var(--ok)} .dot.warn{background:var(--warn)} .dot.bad{background:var(--bad)}
+
+.toolbar{position:absolute;left:max(12px,env(safe-area-inset-left,0px));right:max(12px,env(safe-area-inset-right,0px));bottom:12px;
+  display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px;border-radius:10px;background:color-mix(in srgb,var(--panel) 92%,transparent);
+  border:1px solid var(--line);box-shadow:0 6px 20px rgba(0,0,0,.12);backdrop-filter:blur(6px)}
+.grp{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.sep{width:1px;align-self:stretch;background:var(--line)}
+.btn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 11px;border-radius:7px;border:1px solid var(--line);
+  background:var(--panel);cursor:pointer;font-size:12.5px;font-weight:600}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn[aria-pressed="true"]{border-color:var(--accent);color:var(--accent)}
+.sw{width:12px;height:12px;border-radius:3px;display:inline-block}
+.lbl{font-size:12px;color:var(--muted);font-weight:500}
+select.btn{padding-right:6px}
+input[type=range]{accent-color:var(--accent);width:120px}
+
+aside{min-width:0;border-left:1px solid var(--line);background:var(--panel);overflow:auto;min-height:0;display:flex;flex-direction:column}
+section{padding:14px 16px;border-bottom:1px solid var(--line)}
+section h2{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 10px;font-weight:600}
+.kv{display:grid;grid-template-columns:auto 1fr auto;gap:7px 10px;align-items:center;font-variant-numeric:tabular-nums}
+.kv .k{color:var(--muted);font-size:12.5px}
+.kv .v{font-family:var(--f-code);font-size:12.5px;text-align:right}
+.bar{height:6px;border-radius:3px;background:var(--panel-2);overflow:hidden;border:1px solid var(--line)}
+.bar i{display:block;height:100%;width:0;transition:width .2s}
+.pill{font-family:var(--f-code);font-size:11.5px;padding:1px 7px;border-radius:999px;border:1px solid var(--line);justify-self:end}
+.pill.on{border-color:var(--accent);color:var(--accent)}
+.bins{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.bin{border:1px solid var(--line);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.bh{display:flex;align-items:center;gap:6px;font-weight:600;font-size:13px}
+.bh b{margin-left:auto;font-family:var(--f-code);font-size:18px;font-variant-numeric:tabular-nums}
+.rg{width:9px;height:9px;border-radius:50%;flex:none}
+.mini{display:flex;justify-content:space-between;gap:4px;font-family:var(--f-code);font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.mini i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:3px}
+.legend{margin-top:10px;font-size:12px;color:var(--muted)}
+.verdict{margin-top:10px;font-size:12.5px;color:var(--muted)}
+.verdict strong{color:var(--fg)}
+
+.info .empty{color:var(--muted);font-size:13px}
+.info h3{margin:0 0 2px;font-size:15px}
+.info .role{color:var(--muted);font-size:12.5px;margin-bottom:8px}
+.info ul{margin:0;padding-left:18px;display:grid;gap:3px;font-size:13px}
+.info .pins{margin-top:8px;font-family:var(--f-code);font-size:12px;background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+
+.code{font-family:var(--f-code);font-size:11.8px;line-height:1.62;background:var(--panel-2);border:1px solid var(--line);border-radius:8px;
+  max-height:360px;overflow:auto;padding:6px 0}
+.code .tx{white-space:pre}
+.code .ln{display:flex;white-space:pre;padding-right:12px;min-width:max-content}
+.code .ln::before{content:attr(data-n);width:34px;flex:none;text-align:right;padding-right:12px;color:var(--tc);opacity:.7}
+.code .ln.on{background:var(--hl);box-shadow:inset 3px 0 0 var(--accent)}
+.tk{color:var(--tk)} .ts{color:var(--ts)} .tc{color:var(--tc);font-style:italic} .tn{color:var(--tn)} .tp{color:var(--tp)}
+.note{font-size:12px;color:var(--muted);margin-top:8px}
+.serial{font-family:var(--f-code);font-size:11.8px;background:#0f1214;color:#c9f5d6;border-radius:8px;height:150px;overflow:auto;padding:8px 10px;
+  border:1px solid var(--line);font-variant-numeric:tabular-nums}
+.serial div{white-space:pre}
+.serial .dim{color:#7f8f86}
+.serial .r{color:#ff8a7a} .serial .y{color:#ffd35c} .serial .g{color:#7ee2a0}
+
+@media (max-width: 900px){
+  .app{height:auto;min-height:100%}
+  main{grid-template-columns:minmax(0,1fr)}
+  .stage{height:62vh;min-height:360px}
+  aside{border-left:0;border-top:1px solid var(--line);overflow:visible}
+  .views{margin-left:0}
+  input[type=range]{width:90px}
+}
+@media (prefers-reduced-motion: reduce){.bar i{transition:none}}
+</style>
+
+<div class="app">
+  <header class="top">
+    <a class="factory-link" href="./">← 공장 전체로</a>
+    <div class="brand"><h1>공두이노 색상분류 컨베이어</h1><span>3D 실물 모델 · 아두이노 시뮬레이터</span></div>
+    <div class="views" role="group" aria-label="카메라 시점">
+      <button id="v-all" aria-pressed="true" data-view="all">전체</button>
+      <button id="v-sensor" aria-pressed="false" data-view="sensor">센서부</button>
+      <button id="v-gate" aria-pressed="false" data-view="gate">게이트</button>
+      <button id="v-ard" aria-pressed="false" data-view="ard">아두이노</button>
+      <button id="v-top" aria-pressed="false" data-view="top">위에서</button>
+    </div>
+  </header>
+  <main>
+    <div class="stage" id="stage">
+      <canvas id="c" aria-label="컨베이어 3D 모델. 왼쪽 버튼 드래그로 회전, 가운데 휠 버튼을 누른 채 드래그하면 화면 이동, 휠을 굴리면 확대 및 축소, 부품 클릭으로 정보 확인"></canvas>
+      <div id="labels"></div>
+      <div class="hud">
+        <span class="chip"><span class="dot ok" id="hud-dot"></span><span id="hud-state">벨트 가동</span></span>
+        <span class="chip" id="hud-hint">왼쪽 드래그 회전 · 휠 누르고 드래그 이동 · 휠 굴려 확대/축소</span>
+      </div>
+      <div class="toolbar">
+        <div class="grp">
+          <button class="btn primary" id="play">일시정지</button>
+          <select class="btn" id="speed" aria-label="시뮬레이션 속도">
+            <option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="3">3×</option>
+          </select>
+          <button class="btn" id="auto" aria-pressed="true">자동 투입</button>
+        </div>
+        <span class="sep"></span>
+        <div class="grp">
+          <span class="lbl">블록 넣기</span>
+          <select class="btn" id="dest" aria-label="목적지 지역">
+            <option value="?">목적지 랜덤</option><option value="S">서울행</option><option value="D">대전행</option><option value="B">부산행</option>
+          </select>
+          <button class="btn" id="add-R"><span class="sw" style="background:#d9241c"></span>빨강</button>
+          <button class="btn" id="add-Y"><span class="sw" style="background:#ffc21a"></span>노랑</button>
+          <button class="btn" id="add-G"><span class="sw" style="background:#1f8f4a"></span>초록</button>
+        </div>
+        <span class="sep"></span>
+        <div class="grp">
+          <label class="lbl" for="explode">분해</label>
+          <input type="range" id="explode" min="0" max="1" step="0.01" value="0">
+          <button class="btn" id="labelsBtn" aria-pressed="false">부품 이름</button>
+          <button class="btn" id="clear">수거함 비우기</button>
+        </div>
+      </div>
+    </div>
+
+    <aside>
+      <section>
+        <h2>실시간 상태</h2>
+        <div class="kv">
+          <span class="k">모터 PWM (D3)</span><div class="bar"><i id="b-motor" style="background:var(--accent)"></i></div><span class="v" id="v-motor">180</span>
+          <span class="k">QR 스캐너 (D11)</span><span class="v" id="v-qr" style="grid-column:span 2">대기</span>
+          <span class="k">IR 센서 (D2)</span><span></span><span class="pill" id="v-ir">HIGH</span>
+          <span class="k">펄스폭 R</span><div class="bar"><i id="b-r" style="background:#d9241c"></i></div><span class="v" id="v-r">–</span>
+          <span class="k">펄스폭 G</span><div class="bar"><i id="b-g" style="background:#1f8f4a"></i></div><span class="v" id="v-g">–</span>
+          <span class="k">펄스폭 B</span><div class="bar"><i id="b-b" style="background:#2563eb"></i></div><span class="v" id="v-b">–</span>
+          <span class="k">서울 게이트 (D9)</span><div class="bar"><i id="b-sg" style="background:#2563eb"></i></div><span class="v" id="v-sg">0°</span>
+          <span class="k">대전 게이트 (D10)</span><div class="bar"><i id="b-sy" style="background:#7c3aed"></i></div><span class="v" id="v-sy">0°</span>
+        </div>
+        <div class="verdict">마지막 판정: <strong id="v-cls">아직 없음</strong></div>
+        <div class="bins" id="bins"></div>
+        <div class="legend">QR = 목적지 지역 · 색상 = 품목. 수거함 안에서는 품목별로 칸을 나눠 쌓입니다. TCS3200 펄스폭은 작을수록 그 색이 강합니다.</div>
+      </section>
+      <section class="info" id="info">
+        <h2>부품 정보</h2>
+        <div class="empty">3D 화면에서 부품을 클릭하면 사양과 아두이노 핀 연결이 여기에 표시됩니다.</div>
+      </section>
+      <section>
+        <h2>아두이노 코드 · sorter.ino</h2>
+        <div class="code" id="code"></div>
+        <div class="note">강조된 줄이 시뮬레이션에서 지금 실행 중인 코드입니다. 측정 단계는 눈으로 볼 수 있도록 실제보다 느리게 표시합니다.</div>
+      </section>
+      <section>
+        <h2>시리얼 모니터 · 9600 baud</h2>
+        <div class="serial" id="serial"></div>
+      </section>
+    </aside>
+  </main>
+</div>
+
+<script src="vendor/three.min.js"></script>
+<script src="vendor/OrbitControls.js"></script>
+<script src="vendor/RoomEnvironment.js"></script>
+<script src="vendor/RoundedBoxGeometry.js"></script>
+<script src="vendor/qrcode.js"></script>
+<script>
+(() => {
+'use strict';
+/* ============ 기본 치수 (단위: cm) ============ */
+const BELT_W = 3.5, BELT_TOP = 6.3, RX = 29, RY = 5.1, RR = 1.2;
+const RAIL_Z = 4.6, RAIL_Y = 5, SX = -6, BS = 2.6, V = 4;
+const TH = 52 * Math.PI / 180, ARM_L = 12.5;
+const GATES = {
+  S: { xp: 8,  zp: -6.2, sg: 1,  angle: 0, target: 0, close: 0 },
+  D: { xp: 20, zp:  6.2, sg: -1, angle: 0, target: 0, close: 0 }
+};
+const BIN_POS = { S: [7, -11.5], D: [19, 11.5], B: [36.5, 0] };
+const REG = { S: { name: '서울', en: 'SEOUL', color: '#2563eb', gate: '게이트 1' }, D: { name: '대전', en: 'DAEJEON', color: '#7c3aed', gate: '게이트 2' }, B: { name: '부산', en: 'BUSAN', color: '#0e8fa8', gate: '벨트 끝' } };
+const QX = -12.5;
+const COLORS = { R: 0xd9241c, Y: 0xffc21a, G: 0x1f8f4a };
+const NAMES = { R: '빨강', Y: '노랑', G: '초록' };
+
+/* ============ 렌더러 / 씬 ============ */
+const stage = document.getElementById('stage');
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+const scene = new THREE.Scene();
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new THREE.RoomEnvironment(), 0.04).texture;
+
+const camera = new THREE.PerspectiveCamera(34, 1, 0.5, 600);
+camera.position.set(-34, 40, 56);
+const controls = new THREE.OrbitControls(camera, canvas);
+controls.mouseButtons.MIDDLE = THREE.MOUSE.PAN;
+controls.enablePan = true;
+controls.screenSpacePanning = true;
+controls.target.set(4, 4, 0);
+controls.enableDamping = true; controls.dampingFactor = 0.08;
+controls.maxPolarAngle = Math.PI * 0.49; controls.minDistance = 12; controls.maxDistance = 160;
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8f94, 0.35));
+const sun = new THREE.DirectionalLight(0xffffff, 1.55);
+sun.position.set(28, 62, 30); sun.target.position.set(4, 0, 0);
+sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -48, right: 48, top: 40, bottom: -40, near: 10, far: 140 });
+sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03; sun.shadow.radius = 4;
+scene.add(sun, sun.target);
+const fill = new THREE.DirectionalLight(0xdfe8ff, 0.35); fill.position.set(-40, 25, -20); scene.add(fill);
+
+const floorMat = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.92 });
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), floorMat);
+floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
+scene.fog = new THREE.Fog(0xffffff, 160, 360);
+
+function applyTheme() {
+  const cs = getComputedStyle(document.documentElement);
+  const st = cs.getPropertyValue('--stage').trim() || '#dfe3e4';
+  const fl = cs.getPropertyValue('--floor').trim() || '#eef0f0';
+  scene.background = new THREE.Color(st).convertSRGBToLinear();
+  scene.fog.color.copy(scene.background);
+  floorMat.color.set(fl).convertSRGBToLinear();
+}
+applyTheme();
+try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme); } catch (e) {}
+new MutationObserver(applyTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+/* ============ 텍스처 ============ */
+const maxAniso = renderer.capabilities.getMaxAnisotropy();
+function canvasTex(w, h, draw, opt = {}) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c);
+  if (opt.srgb !== false) t.encoding = THREE.sRGBEncoding;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  if (opt.repeat) t.repeat.set(opt.repeat[0], opt.repeat[1]);
+  t.anisotropy = maxAniso;
+  return t;
+}
+// 3D 프린팅 적층 무늬 (범프)
+const layerBump = canvasTex(64, 64, (g, w, h) => {
+  for (let y = 0; y < h; y++) {
+    const v = 128 + Math.sin(y * Math.PI / 2) * 40 + (Math.random() - .5) * 10;
+    g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(0, y, w, 1);
+  }
+}, { srgb: false, repeat: [4, 4] });
+// 우레탄 벨트 표면
+const beltTex = canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#1d3a30'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 9000; i++) {
+    const a = Math.random() * .08; g.fillStyle = Math.random() < .5 ? `rgba(0,0,0,${a})` : `rgba(160,220,190,${a * .6})`;
+    g.fillRect(Math.random() * w, Math.random() * h, 1.5, 1.5);
+  }
+  g.strokeStyle = 'rgba(0,0,0,.10)'; g.lineWidth = 1;
+  for (let i = -h; i < w; i += 6) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i + h, h); g.stroke(); }
+});
+const beltBump = canvasTex(128, 128, (g, w, h) => {
+  g.fillStyle = '#808080'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 3000; i++) { const v = 100 + Math.random() * 60 | 0; g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(Math.random() * w, Math.random() * h, 1, 1); }
+}, { srgb: false });
+
+function pcbTex(w, h, base, trace, draw) {
+  return canvasTex(w, h, (g) => {
+    g.fillStyle = base; g.fillRect(0, 0, w, h);
+    g.strokeStyle = trace; g.lineWidth = 2.2; g.lineCap = 'round';
+    for (let i = 0; i < 46; i++) {
+      let x = Math.random() * w, y = Math.random() * h; g.beginPath(); g.moveTo(x, y);
+      for (let k = 0; k < 3; k++) { if (Math.random() < .5) x += (Math.random() - .5) * 180; else y += (Math.random() - .5) * 140; g.lineTo(x, y); }
+      g.stroke();
+    }
+    g.fillStyle = trace;
+    for (let i = 0; i < 70; i++) { g.beginPath(); g.arc(Math.random() * w, Math.random() * h, 3, 0, 7); g.fill(); }
+    draw(g, w, h);
+  });
+}
+const unoTex = pcbTex(514, 400, '#0d63a5', '#1679c2', (g, w, h) => {
+  g.fillStyle = '#f2f6fa'; g.strokeStyle = '#f2f6fa'; g.lineWidth = 2;
+  g.font = 'italic 700 64px Arial'; g.fillText('UNO', 300, 230);
+  g.font = '700 22px Arial'; g.fillText('ARDUINO', 300, 160);
+  g.font = '600 15px Arial'; g.fillText('DIGITAL (PWM~)', 250, 70); g.fillText('POWER', 150, 350); g.fillText('ANALOG IN', 330, 350);
+  g.strokeRect(150, 18, 340, 30); g.strokeRect(120, 360, 170, 30); g.strokeRect(320, 360, 140, 30);
+  g.strokeRect(150, 250, 280, 60);
+  g.beginPath(); g.arc(470, 200, 20, 0, 7); g.stroke();
+});
+const shieldTex = pcbTex(514, 400, '#1452a8', '#1f63c0', (g) => {
+  g.fillStyle = '#f2f6fa'; g.font = '700 26px Arial'; g.fillText('SENSOR SHIELD V5.0', 120, 210);
+  g.font = '600 15px Arial';
+  for (let i = 0; i < 14; i++) g.fillText(String(13 - i), 30 + i * 33, 135);
+  g.fillText('G', 8, 40); g.fillText('V', 8, 72); g.fillText('S', 8, 104);
+  g.fillText('A0  A1  A2  A3  A4  A5', 230, 380);
+});
+const driverTex = pcbTex(256, 190, '#b3201a', '#c93b2f', (g) => {
+  g.fillStyle = '#fff'; g.font = '700 22px Arial'; g.fillText('IRF520', 70, 110); g.font = '600 15px Arial'; g.fillText('MOS Module', 70, 135);
+});
+const labelTex = canvasTex(256, 128, (g, w, h) => {
+  g.fillStyle = '#f4f4f4'; g.fillRect(0, 0, w, h);
+  g.fillStyle = '#0b3aa0'; g.font = '800 46px Arial'; g.fillText('SG90', 30, 62);
+  g.fillStyle = '#222'; g.font = '600 20px Arial'; g.fillText('MICRO SERVO 9g', 30, 100);
+});
+
+/* ============ 재질 ============ */
+const std = (o) => new THREE.MeshStandardMaterial(o);
+const M = {
+  alu: std({ color: 0xc3c8ce, metalness: 0.88, roughness: 0.34 }),
+  steel: std({ color: 0xd9dde2, metalness: 1, roughness: 0.22 }),
+  brass: std({ color: 0xc9a55a, metalness: 1, roughness: 0.3 }),
+  orange: std({ color: 0xff6a12, roughness: 0.55, bumpMap: layerBump, bumpScale: 0.012 }),
+  blackPla: std({ color: 0x1e1f22, roughness: 0.62, bumpMap: layerBump, bumpScale: 0.012 }),
+  rubber: std({ color: 0x141516, roughness: 0.85 }),
+  belt: std({ map: beltTex, bumpMap: beltBump, bumpScale: 0.01, roughness: 0.82, side: THREE.DoubleSide }),
+  beltIn: std({ color: 0x182a23, roughness: 0.9, side: THREE.DoubleSide }),
+  roller: std({ color: 0xb9bec3, metalness: .6, roughness: .45 }),
+  yellow: std({ color: 0xf5c400, roughness: 0.4 }),
+  servo: new THREE.MeshPhysicalMaterial({ color: 0x2f5be0, roughness: 0.28, transparent: true, opacity: 0.88, clearcoat: .6 }),
+  white: std({ color: 0xf2f2f2, roughness: 0.5 }),
+  chip: std({ color: 0x18191b, roughness: 0.45 }),
+  header: std({ color: 0x111214, roughness: 0.55 }),
+  gold: std({ color: 0xd9b45a, metalness: 1, roughness: 0.25 }),
+  acrylic: new THREE.MeshPhysicalMaterial({ color: 0xf4fbff, roughness: 0.05, transparent: true, opacity: 0.32, clearcoat: 1, depthWrite: false, side: THREE.DoubleSide }),
+  termBlue: std({ color: 0x1a6fd1, roughness: 0.5 }),
+  ledOff: std({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.15, roughness: .3 }),
+  pcbSide: std({ color: 0x0b3d68, roughness: .6 }),
+  lens: std({ color: 0x050505, roughness: .1, metalness: .2 }),
+  armW: std({ color: 0xf1f1ee, roughness: 0.5, bumpMap: layerBump, bumpScale: 0.012 }),
+};
+const blockMat = {}; for (const k in COLORS) blockMat[k] = std({ color: COLORS[k], roughness: 0.48, bumpMap: layerBump, bumpScale: 0.01 });
+
+/* ============ 헬퍼 ============ */
+function mesh(geo, mat, x = 0, y = 0, z = 0, parent) { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); if (parent) parent.add(m); return m; }
+function box(w, h, d, mat, x, y, z, parent) { return mesh(new THREE.BoxGeometry(w, h, d), mat, x, y, z, parent); }
+function cylZ(r, len, mat, x, y, z, parent, seg = 32) { const g = new THREE.CylinderGeometry(r, r, len, seg); g.rotateX(Math.PI / 2); return mesh(g, mat, x, y, z, parent); }
+function cylY(r, len, mat, x, y, z, parent, seg = 32) { return mesh(new THREE.CylinderGeometry(r, r, len, seg), mat, x, y, z, parent); }
+function cylX(r, len, mat, x, y, z, parent, seg = 32) { const g = new THREE.CylinderGeometry(r, r, len, seg); g.rotateZ(Math.PI / 2); return mesh(g, mat, x, y, z, parent); }
+
+const root = new THREE.Group(); scene.add(root);
+const PARTS = {};
+function part(id, info, explode, anchor) {
+  const g = new THREE.Group(); g.userData.partId = id; root.add(g);
+  PARTS[id] = { id, ...info, group: g, explode: new THREE.Vector3(...explode), anchor: new THREE.Vector3(...anchor) };
+  return g;
+}
+
+/* ============ 1. 2020 알루미늄 프로파일 ============ */
+function profileShape() {
+  const side = [[-.31, -1], [-.31, -.85], [-.55, -.85], [-.35, -.52], [.35, -.52], [.55, -.85], [.31, -.85], [.31, -1], [1, -1]];
+  const s = new THREE.Shape(); s.moveTo(-1, -1);
+  for (let r = 0; r < 4; r++) for (const [x, y] of side) {
+    const c = [[x, y], [-y, x], [-x, -y], [y, -x]][r]; s.lineTo(c[0], c[1]);
+  }
+  const hole = new THREE.Path(); hole.absarc(0, 0, 0.25, 0, Math.PI * 2, true); s.holes.push(hole);
+  return s;
+}
+{
+  const g = part('rails', { name: '2020 알루미늄 프로파일', role: '프레임', spec: ['20×20mm T-슬롯 프로파일, 길이 600mm × 2', 'M5 T-너트와 볼트로 브래킷·센서 마운트 고정', '양 끝 M5 탭 가공'] }, [0, 0, 0], [-18, 6.1, 4.6]);
+  const geo = new THREE.ExtrudeGeometry(profileShape(), { depth: 60, bevelEnabled: true, bevelThickness: .04, bevelSize: .04, bevelSegments: 1, curveSegments: 10 });
+  geo.translate(0, 0, -30); geo.rotateY(Math.PI / 2);
+  for (const sz of [-1, 1]) mesh(geo, M.alu, 0, RAIL_Y, sz * RAIL_Z, g);
+  // T-너트 볼트 머리
+  for (const x of [-26, -16, -6, 8, 20, 26]) for (const sz of [-1, 1]) cylY(.32, .25, M.steel, x, RAIL_Y + 1.12, sz * (RAIL_Z + .55), g, 6);
+}
+
+/* ============ 2. 벨트 + 롤러 ============ */
+function beltPath(R) {
+  const pts = []; const seg = 80, arc = 28;
+  for (let i = 0; i <= seg; i++) pts.push([-RX + 2 * RX * i / seg, RY + R, 0, 1]);
+  for (let i = 1; i <= arc; i++) { const a = Math.PI / 2 - Math.PI * i / arc; pts.push([RX + R * Math.cos(a), RY + R * Math.sin(a), Math.cos(a), Math.sin(a)]); }
+  for (let i = 1; i <= seg; i++) pts.push([RX - 2 * RX * i / seg, RY - R, 0, -1]);
+  for (let i = 1; i <= arc; i++) { const a = -Math.PI / 2 - Math.PI * i / arc; pts.push([-RX + R * Math.cos(a), RY + R * Math.sin(a), Math.cos(a), Math.sin(a)]); }
+  return pts;
+}
+function ribbon(ptsA, za, ptsB, zb, uv, normals) {
+  const pos = [], nor = [], uvs = [], idx = []; let s = 0;
+  for (let i = 0; i < ptsA.length; i++) {
+    if (i) s += Math.hypot(ptsA[i][0] - ptsA[i - 1][0], ptsA[i][1] - ptsA[i - 1][1]);
+    pos.push(ptsA[i][0], ptsA[i][1], za, ptsB[i][0], ptsB[i][1], zb);
+    nor.push(ptsA[i][2], ptsA[i][3], 0, ptsB[i][2], ptsB[i][3], 0);
+    uvs.push(s / 7, 0, s / 7, 1);
+    if (i) { const a = (i - 1) * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  g.setIndex(idx);
+  if (normals) g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); else g.computeVertexNormals();
+  return g;
+}
+let beltLength = 0;
+{
+  const g = part('belt', { name: '우레탄 벨트 · 롤러', role: '이송부', spec: ['폭 70mm, 두께 1.5mm 녹색 우레탄 평벨트', '롤러 Ø24mm, 608ZZ 베어링 지지', '롤러 양끝 크라운 가공 + 측면 가이드로 벨트 이탈 방지'] }, [0, 9, 0], [-14, 6.4, -3]);
+  const outer = beltPath(RR + .08), inner = beltPath(RR - .07);
+  for (let i = 1; i < outer.length; i++) beltLength += Math.hypot(outer[i][0] - outer[i - 1][0], outer[i][1] - outer[i - 1][1]);
+  const o = new THREE.Mesh(ribbon(outer, -BELT_W, outer, BELT_W, true, true), M.belt); g.add(o);
+  const inn = inner.map(p => [p[0], p[1], -p[2], -p[3]]);
+  g.add(new THREE.Mesh(ribbon(inn, BELT_W, inn, -BELT_W, true, true), M.beltIn));
+  g.add(new THREE.Mesh(ribbon(outer, BELT_W, inner, BELT_W), M.beltIn));
+  g.add(new THREE.Mesh(ribbon(inner, -BELT_W, outer, -BELT_W), M.beltIn));
+  for (const x of [-RX, RX]) {
+    cylZ(RR, BELT_W * 2 + .3, M.roller, x, RY, 0, g, 48);
+    for (const sz of [-1, 1]) cylZ(RR + .25, .25, M.orange, x, RY, sz * (BELT_W + .3), g, 40); // 이탈방지 플랜지
+  }
+  // 중간 지지판 (벨트 처짐 방지)
+  box(56, .2, BELT_W * 2 - .4, M.alu, 0, BELT_TOP - .27, 0, g);
+}
+
+/* ============ 3. 엔드 브래킷 ============ */
+function bracketShape() {
+  const s = new THREE.Shape(); s.moveTo(-3.4, -RY); s.lineTo(3.4, -RY); s.lineTo(3.4, -1.5); s.lineTo(2.9, 0);
+  s.absarc(0, 0, 2.9, 0, Math.PI, false); s.lineTo(-3.4, -1.5); s.lineTo(-3.4, -RY);
+  const h = new THREE.Path(); h.absarc(0, 0, .5, 0, Math.PI * 2, true); s.holes.push(h);
+  const sl = new THREE.Path(); sl.moveTo(-1.6, -3.9); sl.lineTo(1.6, -3.9); sl.lineTo(1.6, -2.4); sl.lineTo(-1.6, -2.4); sl.lineTo(-1.6, -3.9); s.holes.push(sl);
+  return s;
+}
+const bracketGeo = new THREE.ExtrudeGeometry(bracketShape(), { depth: .6, bevelEnabled: true, bevelThickness: .06, bevelSize: .06, bevelSegments: 2, curveSegments: 28 });
+function endBracket(id, x, drive) {
+  const info = drive
+    ? { name: '구동부 엔드 브래킷', role: '구동 롤러 지지', spec: ['PLA 3D 프린팅, 인필 40%', 'GT2 풀리로 모터 동력을 롤러에 전달', '608ZZ 베어링 압입'] }
+    : { name: '아이들 엔드 브래킷', role: '종동 롤러 지지 · 장력 조절', spec: ['PLA 3D 프린팅, 인필 40%', '장력 조절용 장공 슬롯', '608ZZ 베어링 압입'] };
+  const g = part(id, info, [drive ? 9 : -9, 0, 0], [x, 8.6, drive ? -6 : 6]);
+  for (const sz of [-1, 1]) {
+    mesh(bracketGeo, M.orange, x, RY, sz > 0 ? RAIL_Z + 1.0 : -(RAIL_Z + 1.6), g);
+    box(7.4, .5, 2.8, M.orange, x, .25, sz * 6.4, g);           // 발판
+    cylZ(.75, .3, M.chip, x, RY, sz * (RAIL_Z + 1.85), g, 24);   // 베어링
+    cylZ(.28, .32, M.steel, x, RY, sz * (RAIL_Z + 2.0), g, 16);
+    for (const dx of [-2.2, 2.2]) cylY(.32, .2, M.steel, x + dx, .58, sz * 6.4, g, 6);
+  }
+  box(1.4, 1.4, RAIL_Z * 2 + 2.4, M.orange, x + (drive ? -1.6 : 1.6), 1.0, 0, g); // 하부 보강대
+  cylZ(.28, 14.8, M.steel, x, RY, 0, g, 16); // 축
+  return g;
+}
+endBracket('bracketL', -RX, false);
+endBracket('bracketR', RX, true);
+
+/* ============ 4. 투입 가이드 ============ */
+{
+  const g = part('feed', { name: '투입 가이드', role: '블록 정렬', spec: ['PLA 3D 프린팅 깔때기형 가이드', '블록을 벨트 중앙으로 모아 센서 아래로 통과', '출구 폭 38mm (블록 26mm)'] }, [-4, 14, 0], [-24, 8.6, 4]);
+  for (const sz of [-1, 1]) {
+    const a = new THREE.Vector2(-28.5, sz * 5.4), b = new THREE.Vector2(-21, sz * 1.95), c = new THREE.Vector2(-14, sz * 1.95);
+    for (const [p, q] of [[a, b], [b, c]]) {
+      const len = p.distanceTo(q), m = box(len + .3, 1.7, .4, M.orange, (p.x + q.x) / 2, BELT_TOP + 1.15, (p.y + q.y) / 2, g);
+      m.rotation.y = -Math.atan2(q.y - p.y, q.x - p.x);
+    }
+    box(1.2, 1.7, Math.abs(sz * 5.4) - 3.6 + 2.2, M.orange, -27.6, BELT_TOP + 1.15, sz * (RAIL_Z + .2), g);
+    box(1.2, 1.7, 2.8, M.orange, -15, BELT_TOP + 1.15, sz * 3.4, g);
+    box(1.2, .5, 2.2, M.orange, -15, RAIL_Y + 1.25, sz * RAIL_Z, g);
+    box(1.2, .5, 2.2, M.orange, -27.6, RAIL_Y + 1.25, sz * RAIL_Z, g);
+  }
+}
+
+/* ============ 4-1. 블록 매거진 + 서보 푸셔 ============ */
+const MX = -24, FT = BELT_TOP + .45, MAG_N = 5, CR = 1.7, ROD = 4.2, PUSH_L = 3.6;
+const FS = { x: -31.4, y: FT + 1.0 };
+const feeder = { phase: 'idle', t: 0, phi: Math.PI, blk: null, last: -99 };
+let pusher, crank, rod;
+{
+  const g = part('feeder', { name: '블록 매거진 · 푸셔', role: '블록 자동 투입', spec: ['투명 아크릴 세로 매거진, 블록 5개 적재', 'SG90 서보 + 크랭크 링크로 맨 아래 블록만 밀어냄', '앞 블록이 IR 센서를 지나면 다음 블록 투입'], pins: 'PWM 신호 → D13 (주황선)' }, [-8, 12, 0], [MX, FT + MAG_N * BS + 1.4, 1.6]);
+  const top = FT + MAG_N * BS + .4, H = top - FT;
+  // 바닥판 + 프로파일 고정 암
+  box(7.1, .3, 3.4, M.orange, -25.95, FT - .15, 0, g);
+  for (const sz of [-1, 1]) {
+    box(1.2, .3, RAIL_Z - 1.2, M.orange, -26.5, FT - .3, sz * (1.7 + (RAIL_Z - 1.7) / 2), g);
+    box(1.2, .55, 1.6, M.orange, -26.5, RAIL_Y + 1.3, sz * RAIL_Z, g);
+  }
+  // 아크릴 벽: 좌우는 전체, 앞(+x)·뒤(-x)는 아래 한 칸을 비워 둠
+  const wallMat = new THREE.MeshPhysicalMaterial({ color: 0xf2f8fb, roughness: .05, transparent: true, opacity: .26, clearcoat: 1, depthWrite: false, side: THREE.DoubleSide });
+  const edge = new THREE.LineBasicMaterial({ color: 0xaebfc8, transparent: true, opacity: .9 });
+  const walls = [[3.5, H, .25, MX, FT + H / 2, 1.625], [3.5, H, .25, MX, FT + H / 2, -1.625], [.25, H - 2.95, 3.0, MX - 1.625, FT + 2.95 + (H - 2.95) / 2, 0], [.25, H - 2.95, 3.0, MX + 1.625, FT + 2.95 + (H - 2.95) / 2, 0]];
+  for (const w of walls) { const m = box(w[0], w[1], w[2], wallMat, w[3], w[4], w[5], g); m.userData.noShadow = true; m.renderOrder = 2; m.add(new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry), edge)); }
+  for (const dx of [-1.85, 1.85]) for (const dz of [-1.85, 1.85]) box(.3, H, .3, M.orange, MX + dx, FT + H / 2, dz, g);
+  for (const dz of [-1.85, 1.85]) box(4.0, .4, .3, M.orange, MX, top, dz, g);
+  for (const dx of [-1.85, 1.85]) box(.3, .4, 4.0, M.orange, MX + dx, top, 0, g);
+  // 푸셔 (검정 PLA 슬라이더)
+  pusher = new THREE.Group(); g.add(pusher);
+  box(PUSH_L, 2.4, 2.4, M.blackPla, -PUSH_L / 2, 1.2, 0, pusher);
+  box(.25, 2.0, 2.0, M.rubber, -.12, 1.1, 0, pusher);
+  // 서보 (축이 위, 몸체는 -x 쪽)
+  const sv = new THREE.Group(); sv.position.set(FS.x, FS.y, 0); g.add(sv);
+  box(2.3, 2.25, 1.22, M.servo, -.6, -1.35, 0, sv);
+  box(3.2, .22, 1.22, M.servo, -.6, -.95, 0, sv);
+  cylY(.55, .35, M.servo, 0, -.08, 0, sv, 24);
+  box(.4, .3, .5, M.rubber, -1.85, -2.3, 0, sv);
+  // 서보 마운트 → 아이들 브래킷
+  for (const dz of [-1.0, 1.0]) box(2.6, .4, .5, M.orange, FS.x - .6, FS.y - .73, dz, g);
+  for (const dz of [-1.0, 1.0]) box(.6, FS.y - .9 - 3.4, .5, M.orange, FS.x - .6, 3.4 + (FS.y - .9 - 3.4) / 2, dz, g);
+  box(1.0, 1.0, 12.4, M.orange, FS.x - .6, 3.4, 0, g);
+  // 크랭크 혼 + 링크 로드
+  crank = new THREE.Group(); crank.position.set(FS.x, FS.y + .12, 0); g.add(crank);
+  cylY(.4, .3, M.white, 0, 0, 0, crank, 20);
+  box(CR, .16, .45, M.white, CR / 2, .1, 0, crank);
+  cylY(.16, .5, M.steel, CR, .25, 0, crank, 12);
+  rod = box(ROD, .25, .25, M.steel, 0, 0, 0, g);
+}
+function setFeeder(phi) {
+  feeder.phi = phi; crank.rotation.y = -phi;
+  const pinX = FS.x + CR * Math.cos(phi), pinZ = CR * Math.sin(phi), y = FS.y + .37;
+  const back = pinX + Math.sqrt(ROD * ROD - pinZ * pinZ);
+  pusher.position.set(back + PUSH_L, FT, 0);
+  rod.position.set((pinX + back) / 2, y, pinZ / 2);
+  rod.rotation.y = Math.atan2(pinZ, back - pinX);
+  return back + PUSH_L;   // 푸셔 앞면 x
+}
+setFeeder(Math.PI);
+
+/* ============ 5. 모터 + 타이밍벨트 ============ */
+{
+  const g = part('motor', { name: 'DC 기어드 모터', role: '벨트 구동', spec: ['12V 25GA 기어드 모터, 약 60rpm', 'GT2 20T → 30T 타이밍벨트 감속', 'PWM으로 벨트 속도 조절'], pins: 'D3 (PWM) → IRF520 MOSFET 모듈 → 모터' }, [16, 0, 10], [29, 2.0, 12.8]);
+  const mz = RAIL_Z + 2.35, my = 1.7;
+  cylZ(.95, .6, M.blackPla, RX, RY, mz, g, 40);    // 롤러측 풀리
+  cylZ(1.05, .1, M.blackPla, RX, RY, mz - .35, g, 40); cylZ(1.05, .1, M.blackPla, RX, RY, mz + .35, g, 40);
+  cylZ(.62, .6, M.blackPla, RX, my, mz, g, 32);    // 모터측 풀리
+  // 타이밍벨트
+  const tb = M.rubber;
+  const r1 = 1.0, r2 = .67, dy = RY - my;
+  const ang = Math.asin((r1 - r2) / dy);
+  for (const s of [-1, 1]) {
+    const p1 = new THREE.Vector3(RX + s * r1 * Math.cos(ang), RY - r1 * Math.sin(ang) * 1, mz), p2 = new THREE.Vector3(RX + s * r2 * Math.cos(ang), my - r2 * Math.sin(ang), mz);
+    const len = p1.distanceTo(p2); const m = box(.12, len, .5, tb, (p1.x + p2.x) / 2, (p1.y + p2.y) / 2, mz, g);
+    m.rotation.z = Math.atan2(p2.x - p1.x, -(p2.y - p1.y)) * -1;
+  }
+  const t1 = new THREE.Mesh(new THREE.TorusGeometry(r1, .06, 6, 40, Math.PI), tb); t1.scale.z = 4; t1.position.set(RX, RY, mz); g.add(t1);
+  const t2 = new THREE.Mesh(new THREE.TorusGeometry(r2, .06, 6, 30, Math.PI), tb); t2.rotation.z = Math.PI; t2.scale.z = 4; t2.position.set(RX, my, mz); g.add(t2);
+  // 모터 본체
+  box(3.4, 3.4, .5, M.orange, RX, my, mz + .6, g);            // 모터 마운트
+  box(.5, 4.2, .5, M.orange, RX - 1.95, my + 1.6, mz + .6, g);
+  cylZ(1.25, 2.2, M.brass, RX, my, mz + 1.95, g, 40);          // 기어박스
+  cylZ(1.2, 3.0, M.steel, RX, my, mz + 4.6, g, 40);            // 모터 캔
+  cylZ(1.05, .35, M.chip, RX, my, mz + 6.25, g, 40);           // 후면 캡
+  for (const dx of [-.45, .45]) box(.25, .1, .5, M.gold, RX + dx, my + .5, mz + 6.6, g);
+  cylZ(.18, 1.2, M.steel, RX, my, mz - .1, g, 12);             // 축
+}
+
+/* ============ 6. 센서 브래킷 ============ */
+{
+  const g = part('gantry', { name: '센서 브래킷', role: '센서 고정', spec: ['검정 PLA 3D 프린팅 문형 브래킷', '프로파일 상단에 T-너트로 고정', '컬러센서-벨트 간격 약 34mm'] }, [0, 17, 0], [SX, 14.0, -4.6]);
+  for (const sz of [-1, 1]) {
+    box(1.4, 7.4, 1.4, M.blackPla, SX, RAIL_Y + 1 + 3.7, sz * RAIL_Z, g);
+    box(2.6, .5, 2.2, M.blackPla, SX, RAIL_Y + 1.25, sz * RAIL_Z, g);
+  }
+  box(1.4, 1.2, RAIL_Z * 2 + 1.4, M.blackPla, SX, 13.4, 0, g);
+  // IR 센서 암
+  box(1.0, 1.0, 3.2, M.blackPla, SX, 12.7, -(RAIL_Z + 1.8), g);
+}
+
+/* ============ 6-1. GM65 QR 스캐너 ============ */
+let scanBeam, scanWin;
+{
+  const g = part('qrScanner', { name: 'GM65 QR 스캐너', role: '목적지 지역 판독', spec: ['CMOS 이미지 센서, QR·1D 바코드 인식', '연속 스캔 모드: 벨트가 움직이는 중에 판독', 'UART 9600bps로 문자열 출력 (예: GDN/BUSAN/0007)'], pins: 'TX → D11 · RX ← D12 · 5V · GND' }, [0, 18, 6], [QX, 15.2, 2]);
+  const px = QX + 1.6, pz = RAIL_Z;
+  box(1.4, 8.6, 1.4, M.blackPla, px, RAIL_Y + 1 + 4.3, pz, g);
+  box(2.6, .5, 2.2, M.blackPla, px, RAIL_Y + 1.25, pz, g);
+  box(1.2, 1.0, RAIL_Z + .7, M.blackPla, px, 14.5, RAIL_Z / 2 - .35, g);
+  box(3.6, .5, 3.4, M.blackPla, QX + .6, 13.9, 0, g);                 // 홀더
+  const body = box(3.0, 1.7, 2.8, M.chip, QX, 12.85, 0, g);           // 스캐너 본체
+  box(3.05, .25, 2.85, M.rubber, QX, 13.6, 0, g);
+  scanWin = box(1.5, .06, 1.0, std({ color: 0x220505, emissive: 0xff2a1a, emissiveIntensity: .2, roughness: .1 }), QX, 11.98, 0, g);
+  for (const dx of [-1.0, 1.0]) cylY(.12, .06, std({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: .4 }), QX + dx * .9, 11.98, .25, g, 10);
+  const fg = new THREE.CylinderGeometry(.55, 2.0, 1, 4, 1, true); fg.rotateY(Math.PI / 4);
+  scanBeam = new THREE.Mesh(fg, new THREE.MeshBasicMaterial({ color: 0xff2a1a, transparent: true, opacity: .0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+  scene.add(scanBeam);
+}
+
+/* ============ 7. TCS3200 컬러 센서 ============ */
+const sensorLEDs = []; let sensorLight;
+{
+  const g = part('colorSensor', { name: 'TCS3200 컬러 센서', role: '품목 판별 (색상)', spec: ['8×8 포토다이오드 배열 + 백색 LED 4개', 'R/G/B/Clear 필터를 S2·S3로 전환', '출력: 빛 세기에 비례하는 주파수(펄스폭 측정)'], pins: 'S0→D4  S1→D5  S2→D6  S3→D7  OUT→D8' }, [0, 24, 0], [SX, 9.6, 0]);
+  const cy = 11.2, hgt = 3.2, w = 3.3;
+  // 차광 후드 (아래 개방)
+  box(w, .3, w, M.blackPla, SX, cy + hgt / 2, 0, g);
+  for (const s of [-1, 1]) { box(.3, hgt, w, M.blackPla, SX + s * (w / 2 - .15), cy, 0, g); box(w, hgt, .3, M.blackPla, SX, cy, s * (w / 2 - .15), g); }
+  // 내부 PCB와 LED
+  const pcb = box(2.8, .14, 2.8, M.pcbSide, SX, cy + .9, 0, g);
+  cylY(.42, .35, M.white, SX, cy + .66, 0, g, 24);
+  cylY(.25, .37, M.lens, SX, cy + .65, 0, g, 20);
+  for (const [dx, dz] of [[-.9, -.9], [.9, -.9], [-.9, .9], [.9, .9]]) {
+    const led = mesh(new THREE.SphereGeometry(.2, 16, 12), M.ledOff.clone(), SX + dx, cy + .7, dz, g); sensorLEDs.push(led);
+  }
+  sensorLight = new THREE.PointLight(0xfff6e8, 0, 9, 2); sensorLight.position.set(SX, cy - .2, 0); g.add(sensorLight);
+}
+
+/* ============ 8. E18-D80NK 적외선 센서 ============ */
+let irGroup, irBeam;
+const IR_POS = new THREE.Vector3(SX, 12.7, -(RAIL_Z + 3.6)), IR_AIM = new THREE.Vector3(SX, BELT_TOP + 1.3, 0.2);
+{
+  const g = part('irSensor', { name: 'E18-D80NK 적외선 센서', role: '블록 도착 감지', spec: ['반사형 적외선 근접 스위치, 감지 3–80cm 조절', 'NPN 출력: 물체가 있으면 LOW', '후면 볼륨으로 감지 거리 조정'], pins: '갈색 5V · 파랑 GND · 검정 신호 → D2' }, [0, 18, -10], [SX, 14.4, -8.3]);
+  irGroup = new THREE.Group(); irGroup.position.copy(IR_POS); irGroup.lookAt(IR_AIM); g.add(irGroup);
+  cylZ(.9, 4.6, M.yellow, 0, 0, 0, irGroup, 40);
+  for (const z of [-.6, 1.0]) cylZ(1.22, .45, M.chip, 0, 0, z, irGroup, 6);
+  cylZ(.95, .6, M.chip, 0, 0, 2.55, irGroup, 40);
+  for (const dx of [-.35, .35]) cylZ(.22, .62, M.lens, dx, 0, 2.6, irGroup, 16);
+  cylZ(.82, .3, M.chip, 0, 0, -2.4, irGroup, 32);
+  cylZ(.25, .6, M.rubber, 0, 0, -2.8, irGroup, 12);
+  const led = cylZ(.1, .12, std({ color: 0xff3b2f, emissive: 0xff2010, emissiveIntensity: 0 }), .4, .45, -2.5, irGroup, 10); irGroup.userData.led = led;
+  irBeam = new THREE.Mesh(new THREE.CylinderGeometry(.1, .1, 1, 10, 1, true), new THREE.MeshBasicMaterial({ color: 0xff3020, transparent: true, opacity: .35, blending: THREE.AdditiveBlending, depthWrite: false }));
+  scene.add(irBeam);
+}
+
+/* ============ 9. SG90 서보 + 게이트 ============ */
+function servoGate(id, key, info) {
+  const G = GATES[key];
+  const g = part(id, info, [0, 4, G.sg < 0 ? 10 : -10], [G.xp + .6, 7.2, G.zp + (G.sg < 0 ? 1.2 : -1.2)]);
+  const s = new THREE.Group(); s.position.set(G.xp, 6.4, G.zp); g.add(s);
+  // 본체 (축이 한쪽 끝에 있음)
+  box(2.3, 2.25, 1.22, M.servo, .6, -1.35, 0, s);
+  box(3.2, .22, 1.22, M.servo, .6, -.95, 0, s);
+  cylY(.55, .35, M.servo, 0, -.08, 0, s, 24);
+  cylY(.28, .25, M.servo, .75, -.12, 0, s, 18);
+  const lab = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 1.0), std({ map: labelTex, roughness: .6 }));
+  lab.position.set(.6, -1.45, G.sg > 0 ? -.62 : .62); lab.rotation.y = G.sg > 0 ? Math.PI : 0; s.add(lab);
+  // 케이블 출구
+  box(.4, .3, .5, M.rubber, 1.85, -2.3, 0, s);
+  // 프로파일 고정 브래킷
+  const bz = (G.sg > 0 ? 1 : -1) * 0.9;
+  box(4.0, .45, 1.6, M.orange, .6, -.73, bz * .55, s);
+  box(4.0, 1.9, .45, M.orange, .6, -1.5, bz * 1.15, s);
+  // 혼 + 게이트 암
+  const pivot = new THREE.Group(); pivot.position.y = .1; s.add(pivot);
+  cylY(.4, .3, M.white, 0, .05, 0, pivot, 20);
+  box(1.8, .15, .4, M.white, -.7, .12, 0, pivot);
+  const am = M.armW;
+  box(ARM_L, 1.6, .35, am, -ARM_L / 2 - .1, .95, 0, pivot);
+  box(ARM_L * .7, .25, 1.0, am, -ARM_L * .35 - .4, .3, 0, pivot);   // 리브
+  cylY(.6, 1.6, am, 0, .95, 0, pivot, 20);
+  G.pivot = pivot;
+  return g;
+}
+servoGate('servoS', 'S', { name: 'SG90 서보 · 서울 게이트', role: '서울행 분기 (게이트 1)', spec: ['9g 마이크로 서보, 토크 1.8kg·cm', '대기 0° → 열림 52° (벨트를 대각선으로 가로막음)', 'QR이 SEOUL인 블록을 서울 수거함으로'], pins: 'PWM 신호 → D9 (주황선)' });
+servoGate('servoD', 'D', { name: 'SG90 서보 · 대전 게이트', role: '대전행 분기 (게이트 2)', spec: ['9g 마이크로 서보, 토크 1.8kg·cm', '대기 0° → 열림 -52°', '부산행은 두 게이트를 모두 지나 벨트 끝 수거함으로'], pins: 'PWM 신호 → D10 (주황선)' });
+
+/* ============ 10. 수거함 ============ */
+const BIN_GROUPS = {};
+function signTex(key) {
+  const R = REG[key];
+  return canvasTex(512, 160, (g, w, h) => {
+    g.fillStyle = '#fafaf8'; g.fillRect(0, 0, w, h);
+    g.fillStyle = R.color; g.fillRect(0, 0, 22, h);
+    g.fillStyle = '#16191c'; g.font = '700 74px "IBM Plex Sans KR", sans-serif'; g.fillText(R.name, 52, 92);
+    g.fillStyle = R.color; g.font = '700 34px Arial'; g.fillText(R.en, 230, 70);
+    g.fillStyle = '#5b646c'; g.font = '600 26px "IBM Plex Sans KR", sans-serif'; g.fillText(R.gate, 230, 118);
+  });
+}
+function makeBin(key) {
+  const [x, z] = BIN_POS[key], R = REG[key];
+  const ex = key === 'B' ? [10, 0, 0] : key === 'S' ? [0, 0, -10] : [0, 0, 10];
+  const g = part('bin' + key, { name: `${R.name} 수거함`, role: `${R.name}행 적재 (${R.gate})`, spec: ['3mm 투명 아크릴 박스 90×90×55mm', '내부 칸막이 3칸: 빨강 · 노랑 · 초록 품목별 적재', key === 'B' ? '벨트 끝에서 떨어지는 블록을 받음' : '게이트로 밀려난 블록을 받음'] }, ex, [x, 9.2, z - 4.4]);
+  const W = 9, H = 5.5, T = .3;
+  const mat = new THREE.MeshPhysicalMaterial({ color: 0xf2f8fb, roughness: .06, transparent: true, opacity: .28, clearcoat: 1, depthWrite: false, side: THREE.DoubleSide });
+  const panels = [[W, T, W, 0, T / 2, 0], [W, H, T, 0, H / 2, W / 2 - T / 2], [W, H, T, 0, H / 2, -W / 2 + T / 2], [T, H, W - 2 * T, W / 2 - T / 2, H / 2, 0], [T, H, W - 2 * T, -W / 2 + T / 2, H / 2, 0],
+    [.15, H * .55, W - 2 * T, -1.4, H * .275, 0], [.15, H * .55, W - 2 * T, 1.4, H * .275, 0]];
+  const edgeMat = new THREE.LineBasicMaterial({ color: 0xaebfc8, transparent: true, opacity: .9 });
+  const floorMat = new THREE.MeshPhysicalMaterial({ color: 0xf3f6f7, roughness: .45, clearcoat: .6, transmission: 0, transparent: false });
+  panels.forEach((p, pi) => {
+    const m = box(p[0], p[1], p[2], pi === 0 ? floorMat : mat, x + p[3], p[4], z + p[5], g); m.userData.noShadow = pi !== 0; m.renderOrder = pi === 0 ? 0 : 2;
+    m.add(new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry), edgeMat));
+  });
+  // 칸 바닥 색 띠 (품목 칸 표시)
+  ['R', 'Y', 'G'].forEach((c, i) => box(2.7, .02, W - 1, std({ color: COLORS[c], roughness: .8, transparent: true, opacity: .35, depthWrite: false }), x + (i - 1) * 2.8, T + .011, z, g));
+  // 지역 표지판
+  const white = std({ color: 0xfafaf8, roughness: .6 }), face = std({ map: signTex(key), roughness: .55 });
+  const sign = mesh(new THREE.BoxGeometry(7.6, 2.4, .2), [white, white, white, white, face, white], x, H + 1.5, z - W / 2 + .15, g);
+  for (const dx of [-3.2, 3.2]) box(.3, 1.0, .3, M.acrylic, x + dx, H + .2, z - W / 2 + .15, g);
+  BIN_GROUPS[key] = g;
+  return g;
+}
+makeBin('S'); makeBin('D'); makeBin('B');
+
+/* ============ 11. 아두이노부 ============ */
+const AX = -7, AZ = 15;
+{
+  const g = part('base', { name: '아크릴 베이스 플레이트', role: '전자부 고정', spec: ['3mm 투명 아크릴 130×100mm', 'M3 황동 스페이서 + 고무발'] }, [0, 0, 10], [AX - 6, 1.6, AZ + 4.6]);
+  const p = box(14, .3, 10.4, M.acrylic, AX + .5, 1.15, AZ, g); p.userData.noShadow = true;
+  p.add(new THREE.LineSegments(new THREE.EdgesGeometry(p.geometry), new THREE.LineBasicMaterial({ color: 0xbfd6e0, transparent: true, opacity: .8 })));
+  for (const dx of [-6.3, 7.3]) for (const dz of [-4.6, 4.6]) { cylY(.35, 1.0, M.brass, AX + dx, .5, AZ + dz, g, 6); }
+}
+{
+  const g = part('uno', { name: 'Arduino UNO R3', role: '제어기', spec: ['ATmega328P 16MHz, 디지털 14 / 아날로그 6', 'USB-B로 코드 업로드', 'DC 잭 7–12V 입력 (스위치 케이블 연결)'] }, [0, 5, 10], [AX - 3.2, 2.4, AZ - 2.8]);
+  const top = std({ map: unoTex, roughness: .55 });
+  const pcbMats = [M.pcbSide, M.pcbSide, top, M.pcbSide, M.pcbSide, M.pcbSide];
+  const y0 = 1.95;
+  mesh(new THREE.BoxGeometry(6.86, .16, 5.34), pcbMats, AX, y0, AZ, g);
+  for (const [dx, dz] of [[-2.8, -2.0], [2.6, -2.2], [2.6, 2.2], [-2.0, 2.2]]) cylY(.25, .6, M.brass, AX + dx, 1.6, AZ + dz, g, 6);
+  box(1.6, 1.1, 1.2, M.steel, AX - 3.43 + .45, y0 + .63, AZ - 1.3, g);  // USB-B
+  box(1.4, 1.1, .9, M.chip, AX - 3.43 + .5, y0 + .63, AZ + 1.75, g);    // DC 잭
+  box(3.5, .35, .8, M.chip, AX + .9, y0 + .26, AZ + .9, g);             // ATmega328P
+  box(.45, .25, .3, M.steel, AX - 1.4, y0 + .2, AZ - .2, g);            // 크리스털
+  // 암 헤더
+  box(4.5, .85, .26, M.header, AX + .6, y0 + .5, AZ - 2.5, g);
+  box(4.0, .85, .26, M.header, AX + .4, y0 + .5, AZ + 2.5, g);
+}
+const SH_Y = 2.95;
+{
+  const g = part('shield', { name: '센서 쉴드 V5.0', role: '배선 확장', spec: ['모든 디지털 핀을 G·V·S 3핀 헤더로 확장', '서보·센서 케이블을 납땜 없이 바로 연결', '외부 서보 전원 단자 제공'] }, [0, 10, 10], [AX + 1.6, 4.4, AZ + 1.2]);
+  const top = std({ map: shieldTex, roughness: .55 });
+  mesh(new THREE.BoxGeometry(6.86, .16, 5.34), [M.pcbSide, M.pcbSide, top, M.pcbSide, M.pcbSide, M.pcbSide], AX, SH_Y, AZ, g);
+  // 3핀 헤더 (G V S)
+  const pinGeo = new THREE.BoxGeometry(.07, .62, .07), baseGeo = new THREE.BoxGeometry(.24, .26, .24);
+  const pins = new THREE.InstancedMesh(pinGeo, M.gold, 14 * 3 + 6 * 3), bases = new THREE.InstancedMesh(baseGeo, M.header, 14 * 3 + 6 * 3);
+  const mm = new THREE.Matrix4(); let n = 0;
+  for (let i = 0; i < 14; i++) for (let r = 0; r < 3; r++) {
+    const px = AX - 2.9 + i * .44, pz = AZ - 2.3 + r * .26;
+    mm.makeTranslation(px, SH_Y + .38, pz); pins.setMatrixAt(n, mm); mm.makeTranslation(px, SH_Y + .21, pz); bases.setMatrixAt(n, mm); n++;
+  }
+  for (let i = 0; i < 6; i++) for (let r = 0; r < 3; r++) {
+    const px = AX + .6 + i * .44, pz = AZ + 1.7 + r * .26;
+    mm.makeTranslation(px, SH_Y + .38, pz); pins.setMatrixAt(n, mm); mm.makeTranslation(px, SH_Y + .21, pz); bases.setMatrixAt(n, mm); n++;
+  }
+  g.add(pins, bases);
+  box(1.0, .7, .8, M.termBlue, AX - 2.7, SH_Y + .43, AZ + 1.6, g);  // 서보 전원 단자
+  box(.5, .3, .5, M.chip, AX - 2.6, SH_Y + .22, AZ + .3, g);         // 리셋 버튼
+  cylY(.15, .1, std({ color: 0xff3020, emissive: 0xff2010, emissiveIntensity: 1.2 }), AX - 1.6, SH_Y + .12, AZ + .5, g, 10); // 전원 LED
+  // 커넥터 (암)
+  const connMat = M.rubber;
+  for (const i of [0, 1, 2, 3, 6, 7]) box(.3, .55, .8, connMat, AX - 2.9 + (13 - [2, 3, 8, 4, 9, 10][[0, 1, 2, 3, 6, 7].indexOf(i)]) * .44, SH_Y + .55, AZ - 2.04, g);
+}
+{
+  const g = part('driver', { name: 'IRF520 MOSFET 모듈', role: '모터 전원 스위칭', spec: ['아두이노 5V PWM으로 12V 모터 전류 제어', '최대 약 1A (방열 없이)', '플라이백 다이오드 내장'], pins: 'SIG → D3 · V+/V− → 모터' }, [-4, 6, 12], [AX + 6.8, 2.2, AZ + 3.8]);
+  const top = std({ map: driverTex, roughness: .55 });
+  mesh(new THREE.BoxGeometry(3.3, .14, 2.4), [M.pcbSide, M.pcbSide, top, M.pcbSide, M.pcbSide, M.pcbSide], AX + 5.4, 1.75, AZ + 3.2, g);
+  box(1.0, .45, .15, M.chip, AX + 5.0, 2.1, AZ + 2.4, g); box(1.0, .9, .05, M.steel, AX + 5.0, 2.35, AZ + 2.3, g);
+  box(.8, .7, 1.4, M.termBlue, AX + 6.6, 2.15, AZ + 3.3, g);
+}
+{
+  const g = part('power', { name: '12V 전원 · 스위치 케이블', role: '전원 공급', spec: ['12V 2A 어댑터 → 5.5×2.1mm DC 플러그', '인라인 ON/OFF 스위치', '아두이노 VIN 경유로 모터·서보 전원 공급'] }, [-8, 0, 6], [-24, 1.4, 24]);
+  const pts = [[AX - 3.43 - .2, 2.6, AZ + 1.75], [AX - 6, 1.2, AZ + 2.5], [-18, .35, 22], [-24, .35, 24], [-31, .35, 23], [-40, .35, 26]].map(p => new THREE.Vector3(...p));
+  const c = new THREE.CatmullRomCurve3(pts);
+  g.add(new THREE.Mesh(new THREE.TubeGeometry(c, 80, .2, 10), M.rubber));
+  const sw = box(2.6, .9, 1.4, M.rubber, -24, .5, 24, g); sw.rotation.y = -0.2;
+  box(.9, .3, .6, M.chip, -24, 1.05, 24, g);
+  const plug = cylX(.42, 1.5, M.rubber, AX - 3.43 - .9, 2.6, AZ + 1.75, g, 16);
+  cylX(.5, 1.2, M.rubber, -40.4, .5, 26, g, 16);
+}
+
+/* ============ 12. 배선 (꼬인 3선 케이블) ============ */
+const wireGroup = new THREE.Group(); root.add(wireGroup);
+const WC = { brown: 0x6b3d22, red: 0xc8231b, orange: 0xf07c12, black: 0x18181a, blue: 0x2459c9, white: 0xeeeeee, yellow: 0xf2c300, green: 0x1e9a4a };
+const wireMats = {}; for (const k in WC) wireMats[k] = std({ color: WC[k], roughness: .45 });
+function cable(points, colors, twists) {
+  const curve = new THREE.CatmullRomCurve3(points.map(p => new THREE.Vector3(...p)), false, 'centripetal');
+  const len = curve.getLength(), n = Math.max(60, Math.round(len * 7));
+  const fr = curve.computeFrenetFrames(n, false), r = .065, k = colors.length;
+  colors.forEach((col, j) => {
+    const pts = [];
+    for (let i = 0; i <= n; i++) {
+      const t = i / n, p = curve.getPointAt(t), a = t * (twists ?? len * .7) * Math.PI * 2 + j * Math.PI * 2 / k;
+      pts.push(p.clone().addScaledVector(fr.normals[i], Math.cos(a) * r * 1.2).addScaledVector(fr.binormals[i], Math.sin(a) * r * 1.2));
+    }
+    wireGroup.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), n, r, 6), wireMats[col]));
+  });
+}
+const PIN = (d) => [AX - 2.9 + (13 - d) * .44, SH_Y + .85, AZ - 2.04];
+cable([PIN(9), [PIN(9)[0], 3.3, AZ - 4], [-2, .6, 8], [5, .4, 2], [8, .4, -3], [9.2, 1.2, -6.4], [9.8, 3.6, -6.4]], ['brown', 'red', 'orange']);
+cable([PIN(10), [PIN(10)[0], 3.3, AZ - 4], [4, .5, 11], [14, .4, 9.5], [20.6, 1.0, 7.0], [21.6, 3.8, 6.6]], ['brown', 'red', 'orange']);
+cable([PIN(2), [PIN(2)[0], 3.5, AZ - 4.5], [-3.5, .5, 7], [-4.6, .4, 0], [-5.6, .6, -6.2], [-5.7, 6, -6.2], [-5.8, 11.6, -6.2], [SX, 13.6, -(RAIL_Z + 2.0)], [SX, 14.2, -(RAIL_Z + 3.0)]], ['brown', 'blue', 'black']);
+cable([PIN(8), [PIN(8)[0] - .2, 3.6, AZ - 4.2], [-7.6, 2.5, 8.5], [SX - .9, 5.5, 6.0], [SX - .9, 9.5, 5.45], [SX - .9, 13.6, 5.2], [SX - .5, 14.4, 3.0], [SX, 14.0, 1.2], [SX, 12.9, .4]], ['red', 'black', 'white', 'yellow'], 10);
+cable([[AX + 6.6, 2.5, AZ + 3.3], [2, .5, 19], [14, .4, 19.5], [25, .4, 17], [RX, .9, 14.8], [RX, 1.7, 13.4]], ['red', 'black']);
+cable([PIN(3), [PIN(3)[0], 3.5, AZ - 3.6], [AX + 3.5, 2.8, AZ - 1], [AX + 4.6, 2.0, AZ + 3.2]], ['brown', 'red', 'orange'], 4);
+
+cable([PIN(11), [PIN(11)[0], 3.5, AZ - 4.4], [-9.5, .6, 9], [QX + 1.6, .8, 6.6], [QX + 1.6, 4, 5.55], [QX + 1.6, 10, 5.55], [QX + 1.6, 15.1, 5.0], [QX + 1.4, 15.15, 2], [QX + .6, 14.3, .6], [QX, 13.8, .2]], ['red', 'black', 'green', 'white'], 9);
+
+cable([PIN(13), [PIN(13)[0], 3.5, AZ - 4.6], [-14, .5, 9.5], [-26, .4, 9], [-33.6, .5, 6.5], [-33.8, 2.2, 1.2], [-33.4, 4.3, 0]], ['brown', 'red', 'orange']);
+
+/* r128: 16진 색상을 선형 공간으로 변환 (sRGB 출력에서 색이 바래지 않도록) */
+const doneMats = new Set();
+function linearize(m) {
+  for (const mt of Array.isArray(m) ? m : [m]) {
+    if (!mt || doneMats.has(mt)) continue; doneMats.add(mt);
+    if (mt.color && !mt.map) mt.color.convertSRGBToLinear();
+    if (mt.emissive) mt.emissive.convertSRGBToLinear();
+    if ('envMapIntensity' in mt) mt.envMapIntensity = mt.metalness > .5 ? 0.9 : 0.55;
+  }
+}
+for (const k in blockMat) linearize(blockMat[k]);
+scene.traverse(o => { if (o.material) linearize(o.material); });
+/* 그림자 설정 */
+root.traverse(o => { if (o.isMesh) { o.castShadow = !o.userData.noShadow && o.material !== M.acrylic; o.receiveShadow = true; } });
+
+/* ============ 부품 기준 위치 기록 ============ */
+for (const id in PARTS) PARTS[id].base = PARTS[id].group.position.clone();
+
+/* ============ 블록 ============ */
+const blockGeo = new THREE.RoundedBoxGeometry(BS, BS, BS, 3, .22);
+const blocks = [];
+/* QR 스티커: 목적지 지역 + 고유 번호 (예: GDN/BUSAN/0007) */
+const stickerGeo = new THREE.PlaneGeometry(2.05, 2.05); stickerGeo.rotateX(-Math.PI / 2);
+let serialNo = 0;
+function qrTexture(text, region, num) {
+  const R = REG[region];
+  return canvasTex(256, 256, (g, w, h) => {
+    g.fillStyle = '#fbfbf8'; g.fillRect(0, 0, w, h);
+    let qr = null;
+    try { qr = qrcode(0, 'M'); qr.addData(text); qr.make(); } catch (e) { qr = null; }
+    if (qr) {
+      const n = qr.getModuleCount(), cell = Math.floor(186 / n), off = (w - cell * n) / 2;
+      g.fillStyle = '#111';
+      for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (qr.isDark(r, c)) g.fillRect(off + c * cell, 10 + r * cell, cell, cell);
+    }
+    g.fillStyle = R.color; g.fillRect(0, h - 52, w, 52);
+    g.fillStyle = '#fff'; g.textAlign = 'center'; g.font = '700 34px "IBM Plex Sans KR", sans-serif'; g.fillText(`${R.name} #${num}`, w / 2, h - 14);
+  });
+}
+function addSticker(m, region) {
+  const num = String(++serialNo).padStart(4, '0');
+  const code = `GDN/${REG[region].en}/${num}`;
+  const tex = qrTexture(code, region, num); tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  const st = new THREE.Mesh(stickerGeo, new THREE.MeshStandardMaterial({ map: tex, roughness: .7, polygonOffset: true, polygonOffsetFactor: -2 }));
+  st.position.y = BS / 2 + .005; st.receiveShadow = true; m.add(st);
+  return { code, num };
+}
+function disposeBlock(m) {
+  m.traverse(o => { if (o !== m && o.material && o.material.map) { o.material.map.dispose(); o.material.dispose(); } });
+  if (m.parent) m.parent.remove(m);
+}
+const ITEMS = ['R', 'Y', 'G'];
+const binContents = {}, counts = {};
+for (const r in REG) { binContents[r] = { R: [], Y: [], G: [] }; counts[r] = { R: 0, Y: 0, G: 0 }; }
+function newBlock(c, region) {
+  const m = new THREE.Mesh(blockGeo, blockMat[c]); m.castShadow = m.receiveShadow = true;
+  scene.add(m);
+  const { code, num } = addSticker(m, region);
+  const b = { c, region, code, num, mesh: m, state: 'drop', x: -25, y: 12, z: (Math.random() - .5) * .6, vy: 0, yaw: (Math.random() - .5) * .3, classified: false, scanned: false };
+  m.rotation.y = b.yaw; blocks.push(b); return b;
+}
+// 수거함 안: 품목(색)별 칸 → 칸마다 3줄 × 2층 (상자 높이 안)
+function binSlot(region, c, idx) {
+  const [x, z] = BIN_POS[region], col = ITEMS.indexOf(c), layer = Math.floor(idx / 3), row = idx % 3;
+  return new THREE.Vector3(x + (col - 1) * 2.8 + (Math.random() - .5) * .08, .3 + BS / 2 + layer * BS - .01, z + (row - 1) * 2.8 + (Math.random() - .5) * .08);
+}
+function landInBin(b) {
+  b.state = 'bin';
+  BIN_GROUPS[b.bin].attach(b.mesh);
+  binContents[b.bin][b.c].push(b);
+  counts[b.bin][b.c]++;
+  updateCounts();
+}
+function startFall(b, region) {
+  const list = binContents[region][b.c];
+  const inAir = () => blocks.filter(o => (o.state === 'fall' || o.state === 'settle') && o.bin === region && o.c === b.c && o !== b).length;
+  if (list.length + inAir() >= 6 && list.length) { for (const o of list) disposeBlock(o.mesh); list.length = 0; log(`-- ${REG[region].name} 수거함 ${NAMES[b.c]} 칸 출고(비움) --`, 'dim'); }
+  b.state = 'fall'; b.bin = region; b.ft = 0;
+  b.p0 = new THREE.Vector3(b.x, b.y, b.z);
+  b.p1 = binSlot(region, b.c, Math.min(5, list.length + inAir()));
+  b.r0 = b.mesh.rotation.clone();
+  const g = 620, vy0 = 22, h = b.p0.y - b.p1.y;
+  b.T = (vy0 + Math.sqrt(vy0 * vy0 + 2 * g * h)) / g; b.g = g; b.vy0 = vy0;
+  b.r1 = new THREE.Euler(0, Math.round(b.mesh.rotation.y / (Math.PI / 2)) * Math.PI / 2 + (Math.random() - .5) * .08, 0);
+  // 낙하 중 살짝 기울어졌다가 착지 시 평평해짐
+  b.tilt = (Math.random() - .5) * .5;
+}
+function randRegion() { return 'SDB'[Math.random() * 3 | 0]; }
+
+/* 매거진: 맨 아래부터 쌓인 블록, 위에서 보충 */
+const magList = [];
+function magTarget(i) {
+  const front = pusher.position.x;
+  const hold = feeder.phase !== 'idle' && front > MX - BS / 2 + .5;   // 푸셔가 나와 있으면 그 위에 얹힘
+  return (hold ? FT + 2.4 : FT) + BS / 2 + i * BS;
+}
+function addMag(c, region, instant) {
+  const b = newBlock(c, region);
+  b.state = 'mag'; b.x = MX; b.z = 0; b.vy = 0; b.yaw = (Math.random() - .5) * .06; b.mesh.rotation.y = b.yaw;
+  const i = magList.length; magList.push(b);
+  b.y = magTarget(i) + (instant ? 0 : 1.6);
+  if (!instant) {     // 위에서 작업자가 넣는 것처럼 짧게 나타나며 떨어짐
+    b.fade = 0; b.mesh.material = blockMat[c].clone(); b.mesh.material.transparent = true; b.mesh.material.opacity = 0;
+  }
+  b.mesh.position.set(b.x, b.y, b.z);
+  return b;
+}
+function magUpdate(b, dt) {
+  if (b.fade !== undefined) {
+    b.fade += dt / .25;
+    if (b.fade >= 1) { b.mesh.material.dispose(); b.mesh.material = blockMat[b.c]; delete b.fade; }
+    else b.mesh.material.opacity = b.fade;
+  }
+  if (b === feeder.blk) return;
+  const ty = magTarget(magList.indexOf(b));
+  if (b.y > ty + .001 || b.vy !== 0) {
+    b.vy -= 520 * dt; b.y += b.vy * dt;
+    if (b.y <= ty) { b.y = ty; b.vy = b.vy < -14 ? -b.vy * .2 : 0; }
+  }
+}
+function canFeed() {
+  if (sim.t - feeder.last < 1.0) return false;
+  return !blocks.some(b => (b.state === 'drop' || b.state === 'belt') && b.x < SX + 2.8);
+}
+function feederStep(dt) {
+  // 보충
+  if (magList.length < MAG_N && sim.t - (sim.lastAdd || -9) > .45) {
+    if (sim.queue.length) { const q = sim.queue.shift(); addMag(q.c, q.r === '?' ? randRegion() : q.r); sim.lastAdd = sim.t; }
+    else if (sim.auto && magList.length < MAG_N - 1) { addMag(ITEMS[Math.random() * 3 | 0], randRegion()); sim.lastAdd = sim.t; }
+  }
+  const ease = k => k * k * (3 - 2 * k);
+  if (feeder.phase === 'idle') {
+    const b0 = magList[0];
+    if (b0 && b0.vy === 0 && Math.abs(b0.y - magTarget(0)) < .01 && b0.fade === undefined && canFeed()) {
+      feeder.phase = 'push'; feeder.t = 0; feeder.blk = b0;
+      log('FEED: 매거진 → 벨트', 'dim');
+    }
+  } else if (feeder.phase === 'push') {
+    feeder.t += dt; const k = Math.min(1, feeder.t / .45);
+    const front = setFeeder(Math.PI * (1 - ease(k)));
+    const b = feeder.blk;
+    if (b) {
+      b.x = Math.max(b.x, front + BS / 2);
+      if (b.x - BS / 2 > MX + 1.65) { b.state = 'drop'; b.vy = 0; magList.shift(); feeder.blk = null; }
+    }
+    if (k >= 1) { feeder.phase = 'back'; feeder.t = 0; }
+  } else if (feeder.phase === 'back') {
+    feeder.t += dt; const k = Math.min(1, feeder.t / .35);
+    setFeeder(Math.PI * ease(k));
+    if (k >= 1) { feeder.phase = 'idle'; feeder.last = sim.t; }
+  }
+}
+
+/* ============ 시뮬레이션 상태 ============ */
+const sim = { t: 0, running: true, auto: true, speed: 1, motor: true, phase: 'idle', pt: 0, cur: null, queue: [], lastSpawn: -99, read: null, beltOffset: 0, ir: false, qrQ: [], scanT: 0, lastScan: null };
+
+function canSpawn() {
+  if (sim.t - sim.lastSpawn < 1.0) return false;
+  return !blocks.some(b => (b.state === 'drop' || b.state === 'belt') && b.x < SX + 2.8);
+}
+function readingFor(c) {
+  const n = () => Math.round((Math.random() - .5) * 6);
+  if (c === 'R') return { r: 22 + n(), g: 76 + n(), b: 58 + n() };
+  if (c === 'Y') return { r: 19 + Math.round(n() / 2), g: 27 + Math.round(n() / 2), b: 61 + n() };
+  return { r: 63 + n(), g: 38 + n(), b: 51 + n() };
+}
+function classify(r, g, b) {
+  if (r < g && r < b && g > 60) return 'R';
+  if (r < b && g < b && Math.abs(r - g) < 15) return 'Y';
+  return 'G';
+}
+function wallX(G, z) { const s = (z - G.zp) * G.sg / Math.sin(TH); return G.xp - s * Math.cos(TH); }
+
+function step(dt) {
+  sim.t += dt;
+  // 게이트 타이머 (loop 첫 두 줄)
+  for (const k in GATES) {
+    const G = GATES[k]; if (sim.t > G.close) G.target = 0;
+    const d = G.target - G.angle, mx = 330 * dt; G.angle += Math.max(-mx, Math.min(mx, d));
+    G.pivot.rotation.y = G.sg * G.angle * Math.PI / 180;
+  }
+  // 매거진 투입
+  feederStep(dt);
+  if (sim.scanT > 0) sim.scanT -= dt;
+  // 센서 상태 머신
+  if (sim.phase === 'read') {
+    sim.motor = false; sim.pt += dt; const t = sim.pt, R = sim.read;
+    if (t > .65 && R.shown < 1) { R.shown = 1; }
+    if (t > .95 && R.shown < 2) { R.shown = 2; }
+    if (t > 1.25 && R.shown < 3) { R.shown = 3; }
+    if (t > 1.45 && !R.logged) {
+      R.logged = true;
+      log(`R:${R.r} G:${R.g} B:${R.b} ITEM:${R.c} DEST:${R.dest}`, R.c.toLowerCase());
+      document.getElementById('v-cls').textContent = `${REG[R.dest].name}행 · ${NAMES[R.c]} · #${R.num}`;
+    }
+    if (t > 1.7 && !R.gated) {
+      R.gated = true;
+      if (R.dest === 'S') { GATES.S.target = 52; GATES.S.close = sim.t + 6.0; }
+      else if (R.dest === 'D') { GATES.D.target = 52; GATES.D.close = sim.t + 9.0; }
+    }
+    if (t > 1.95) { sim.phase = 'wait'; sim.motor = true; sim.cur.classified = true; }
+  } else if (sim.phase === 'wait') {
+    sim.motor = true;
+    if (!sim.cur || sim.cur.state !== 'belt' || sim.cur.x > SX + BS + .2) sim.phase = 'idle';
+  } else sim.motor = true;
+
+  const v = sim.motor ? V : 0;
+  sim.beltOffset += v * dt;
+  // 블록 이동
+  for (const b of blocks) {
+    if (b.state === 'mag') magUpdate(b, dt);
+    else if (b.state === 'drop') {
+      b.vy -= 520 * dt; b.y += b.vy * dt; b.x += v * dt * .5;
+      if (b.y <= BELT_TOP + BS / 2) { b.y = BELT_TOP + BS / 2; b.vy = 0; b.state = 'belt'; }
+    } else if (b.state === 'belt') {
+      b.x += v * dt;
+      b.z += (0 - b.z) * Math.min(1, dt * .8) * (b.x < -14 ? 1 : 0);
+      if (!b.scanned && b.x >= QX) {
+        b.scanned = true; sim.qrQ.push(b.region); sim.scanT = .5; sim.lastScan = b;
+        log(`SCAN ${b.code}`, 'dim');
+      }
+      if (!b.classified && sim.phase === 'idle' && b.x >= SX) {
+        b.x = SX; sim.phase = 'read'; sim.pt = 0; sim.cur = b; sim.motor = false;
+        const R = readingFor(b.c); const dest = sim.qrQ.length ? sim.qrQ.shift() : 'B';
+        sim.read = { ...R, c: classify(R.r, R.g, R.b), shown: 0, num: b.num, dest };
+        log('IR: 물체 감지 → 벨트 정지', 'dim');
+      }
+      for (const k in GATES) {
+        const G = GATES[k];
+        if (G.angle < 40 || b.x > G.xp) continue;
+        if (b.x + BS / 2 >= wallX(G, b.z) - .7) { b.state = 'deflect'; b.gate = k; }
+      }
+      if (b.state === 'belt' && b.x > RX + .6) { b.y = BELT_TOP + BS / 2; startFall(b, 'B'); }
+    } else if (b.state === 'deflect') {
+      const G = GATES[b.gate], sp = v * .9;
+      b.x += Math.cos(TH) * sp * dt; b.z -= G.sg * Math.sin(TH) * sp * dt;
+      const ty = G.pivot.rotation.y; b.mesh.rotation.y += (ty - b.mesh.rotation.y) * Math.min(1, dt * 3);
+      if (Math.abs(b.z) > RAIL_Z + 1.9) startFall(b, b.gate);
+    } else if (b.state === 'fall') {
+      b.ft += dt; const ft = Math.min(b.ft, b.T), t = ft / b.T;
+      b.x = b.p0.x + (b.p1.x - b.p0.x) * t; b.z = b.p0.z + (b.p1.z - b.p0.z) * t;
+      b.y = b.p0.y + b.vy0 * ft - .5 * b.g * ft * ft;
+      const tl = Math.sin(t * Math.PI) * b.tilt;
+      b.mesh.rotation.set(b.r0.x + (b.r1.x - b.r0.x) * t + tl, b.r0.y + (b.r1.y - b.r0.y) * t, b.r0.z + (b.r1.z - b.r0.z) * t - tl * .6);
+      if (t >= 1) { b.x = b.p1.x; b.y = b.p1.y; b.z = b.p1.z; b.mesh.rotation.copy(b.r1); b.state = 'settle'; b.st = 0; }
+    } else if (b.state === 'settle') {
+      b.st += dt; const k = b.st;
+      b.y = b.p1.y + .32 * Math.exp(-k * 14) * Math.abs(Math.sin(k * 26));
+      b.mesh.scale.set(1 + .04 * Math.exp(-k * 20), 1 - .06 * Math.exp(-k * 20), 1 + .04 * Math.exp(-k * 20));
+      if (k > .35) { b.y = b.p1.y; b.mesh.scale.set(1, 1, 1); b.mesh.position.set(b.x, b.y, b.z); landInBin(b); continue; }
+    }
+    if (b.state !== 'bin') b.mesh.position.set(b.x, b.y, b.z);
+  }
+  for (let i = blocks.length - 1; i >= 0; i--) if (blocks[i].state === 'bin') blocks.splice(i, 1);
+  // IR 상태
+  sim.ir = blocks.some(b => (b.state === 'belt') && Math.abs(b.x - SX) < BS / 2 + .2);
+}
+
+/* ============ 초기 예시 상태 ============ */
+for (const [r, c, n] of [['S', 'R', 2], ['S', 'G', 1], ['D', 'Y', 3], ['D', 'R', 1], ['B', 'G', 2], ['B', 'Y', 1], ['B', 'R', 1]]) for (let i = 0; i < n; i++) {
+  const m = new THREE.Mesh(blockGeo, blockMat[c]); m.castShadow = m.receiveShadow = true;
+  addSticker(m, r);
+  m.position.copy(binSlot(r, c, i)); m.rotation.y = (Math.random() - .5) * .25; scene.add(m);
+  BIN_GROUPS[r].attach(m); binContents[r][c].push({ mesh: m }); counts[r][c]++;
+}
+for (let i = 0; i < 4; i++) addMag(ITEMS[Math.random() * 3 | 0], randRegion(), true);
+{ const b = newBlock('Y', 'B'); b.state = 'belt'; b.y = BELT_TOP + BS / 2; b.x = -16; b.z = 0; sim.lastSpawn = -1; b.mesh.position.set(b.x, b.y, b.z); }
+
+/* ============ 코드 패널 ============ */
+const CODE = `#include <Servo.h>
+#include <SoftwareSerial.h>
+
+// TCS3200 컬러센서 → 품목 판별
+#define S0 4
+#define S1 5
+#define S2 6
+#define S3 7
+#define COLOR_OUT 8
+// E18-D80NK 적외선 센서 · 모터 · 서보
+#define IR_PIN 2
+#define MOTOR_PWM 3
+#define SERVO_SEOUL 9
+#define SERVO_DAEJEON 10
+// GM65 QR 스캐너 → 목적지 지역 판별
+#define QR_RX 11
+#define QR_TX 12
+// 매거진 푸셔 서보
+#define SERVO_FEED 13
+
+const int REST = 0, OPEN = 52;       // 게이트 각도(°)
+const int BELT_SPEED = 180;          // PWM 0~255
+const unsigned long HOLD_S = 6000;   // 게이트 유지(ms)
+const unsigned long HOLD_D = 9000;
+const int FEED_BACK = 0, FEED_PUSH = 180;  // 푸셔 크랭크 각도
+
+Servo gateSeoul, gateDaejeon, feeder;
+SoftwareSerial qr(QR_RX, QR_TX);
+unsigned long closeS = 0, closeD = 0;
+char destQ[8];                       // 스캔된 지역 대기열(FIFO)
+byte qHead = 0, qTail = 0;
+
+void setup() {
+  pinMode(S0, OUTPUT); pinMode(S1, OUTPUT);
+  pinMode(S2, OUTPUT); pinMode(S3, OUTPUT);
+  pinMode(COLOR_OUT, INPUT);
+  pinMode(IR_PIN, INPUT_PULLUP);
+  digitalWrite(S0, HIGH); digitalWrite(S1, LOW); // 주파수 20%
+  gateSeoul.attach(SERVO_SEOUL); gateDaejeon.attach(SERVO_DAEJEON);
+  gateSeoul.write(REST); gateDaejeon.write(REST);
+  feeder.attach(SERVO_FEED); feeder.write(FEED_BACK);
+  Serial.begin(9600);
+  qr.begin(9600);
+  analogWrite(MOTOR_PWM, BELT_SPEED);
+  feedOne();                           // 첫 블록 투입
+}
+
+void feedOne() {                       // 매거진 맨 아래 블록 1개 밀어내기
+  feeder.write(FEED_PUSH); delay(450);
+  feeder.write(FEED_BACK); delay(350);
+}
+
+int readColor(int s2, int s3) {
+  digitalWrite(S2, s2); digitalWrite(S3, s3);
+  delay(100);
+  return pulseIn(COLOR_OUT, LOW);  // 작을수록 해당 색이 강함
+}
+
+char classify(int r, int g, int b) {   // 품목: R/Y/G
+  if (r < g && r < b && g > 60) return 'R';
+  if (r < b && g < b && abs(r - g) < 15) return 'Y';
+  return 'G';
+}
+
+char regionOf(String code) {           // 예: "GDN/BUSAN/0007"
+  if (code.indexOf("/SEOUL/") > 0) return 'S';
+  if (code.indexOf("/DAEJEON/") > 0) return 'D';
+  return 'B';                          // 부산 또는 판독 실패 → 벨트 끝
+}
+
+void loop() {
+  if (millis() > closeS) gateSeoul.write(REST);
+  if (millis() > closeD) gateDaejeon.write(REST);
+
+  if (qr.available()) {                    // QR 판독 (벨트 이동 중)
+    String code = qr.readStringUntil('\\r');
+    destQ[qTail++ % 8] = regionOf(code);
+    Serial.print("SCAN "); Serial.println(code);
+  }
+
+  if (digitalRead(IR_PIN) == LOW) {        // 물체 감지 (NPN: LOW)
+    analogWrite(MOTOR_PWM, 0);             // 벨트 정지
+    int r = readColor(LOW, LOW);           // 빨강 필터
+    int g = readColor(HIGH, HIGH);         // 초록 필터
+    int b = readColor(LOW, HIGH);          // 파랑 필터
+    char item = classify(r, g, b);         // 품목 = 색상
+    char dest = (qHead != qTail) ? destQ[qHead++ % 8] : 'B'; // 지역 = QR
+    Serial.print("R:"); Serial.print(r);
+    Serial.print(" G:"); Serial.print(g);
+    Serial.print(" B:"); Serial.print(b);
+    Serial.print(" ITEM:"); Serial.print(item);
+    Serial.print(" DEST:"); Serial.println(dest);
+
+    if (dest == 'S') { gateSeoul.write(OPEN); closeS = millis() + HOLD_S; }
+    else if (dest == 'D') { gateDaejeon.write(OPEN); closeD = millis() + HOLD_D; }
+    // 'B'(부산)은 게이트 없이 끝까지 → 부산 수거함
+
+    analogWrite(MOTOR_PWM, BELT_SPEED);    // 벨트 재가동
+    while (digitalRead(IR_PIN) == LOW) {}  // 물체가 지나갈 때까지 대기
+    feedOne();                             // 다음 블록 투입
+  }
+}`;
+const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+function hl(line) {
+  const re = /(\/\/.*$)|("[^"]*"|'[^']*')|(#\w+)|\b(void|int|char|const|unsigned|long|if|else|while|return|LOW|HIGH|OUTPUT|INPUT|INPUT_PULLUP)\b|\b(\d+)\b/g;
+  let out = '', last = 0, m;
+  while ((m = re.exec(line))) {
+    out += esc(line.slice(last, m.index));
+    const cls = m[1] ? 'tc' : m[2] ? 'ts' : m[3] ? 'tp' : m[4] ? 'tk' : 'tn';
+    out += `<span class="${cls}">${esc(m[0])}</span>`; last = m.index + m[0].length;
+  }
+  return out + esc(line.slice(last));
+}
+const codeEl = document.getElementById('code');
+const codeLines = CODE.split('\n');
+codeEl.innerHTML = codeLines.map((l, i) => `<div class="ln" data-n="${i + 1}"><span class="tx">${hl(l) || ' '}</span></div>`).join('');
+const lineEls = [...codeEl.children];
+const findLine = s => codeLines.findIndex(l => l.includes(s));
+const L = {
+  timers: findLine('if (millis() > closeS)'), scan: findLine('if (qr.available())'), loopTop: findLine('if (digitalRead(IR_PIN) == LOW)'), stop: findLine('analogWrite(MOTOR_PWM, 0)'),
+  readR: findLine('int r = readColor'), readG: findLine('int g = readColor'), readB: findLine('int b = readColor'), classify: findLine('char item = classify'),
+  dest: findLine('char dest ='), serial: findLine('Serial.println(dest)'), gS: findLine("if (dest == 'S')"), gD: findLine("else if (dest == 'D')"), gB: findLine("// 'B'"),
+  restart: findLine('analogWrite(MOTOR_PWM, BELT_SPEED);    //'), feed: findLine('feedOne();                             //'), feedPush: findLine('feeder.write(FEED_PUSH)'), feedBack: findLine('  feeder.write(FEED_BACK); delay'), wait: findLine('while (digitalRead')
+};
+let curLine = -1;
+function setLine(i) {
+  if (i === curLine) return;
+  if (curLine >= 0) lineEls[curLine].classList.remove('on');
+  curLine = i; if (i < 0) return;
+  const el = lineEls[i]; el.classList.add('on');
+  const top = el.offsetTop - codeEl.offsetTop, h = codeEl.clientHeight;
+  if (top < codeEl.scrollTop + 20 || top > codeEl.scrollTop + h - 40) codeEl.scrollTop = top - h / 2;
+}
+function codeLineForState() {
+  if (sim.phase === 'read') {
+    const t = sim.pt, c = sim.read.c;
+    if (t < .2) return L.loopTop; if (t < .35) return L.stop; if (t < .65) return L.readR; if (t < .95) return L.readG;
+    const d = sim.read.dest;
+    if (t < 1.25) return L.readB; if (t < 1.36) return L.classify; if (t < 1.48) return L.dest; if (t < 1.6) return L.serial;
+    if (t < 1.8) return d === 'S' ? L.gS : d === 'D' ? L.gD : L.gB; return L.restart;
+  }
+  if (sim.phase === 'wait') return L.wait;
+  if (feeder.phase === 'push') return L.feedPush;
+  if (feeder.phase === 'back') return L.feedBack;
+  if (sim.scanT > 0) return L.scan;
+  return (Math.floor(sim.t * 2) % 3 === 0) ? L.timers : L.loopTop;
+}
+
+/* ============ 시리얼 ============ */
+const serialEl = document.getElementById('serial');
+function log(text, cls) {
+  const d = document.createElement('div'); d.textContent = text; if (cls) d.className = cls; serialEl.appendChild(d);
+  while (serialEl.children.length > 80) serialEl.firstChild.remove();
+  serialEl.scrollTop = serialEl.scrollHeight;
+}
+log('-- 업로드 완료, 보드 리셋 --', 'dim');
+log('SCAN GDN/SEOUL/0001', 'dim');
+log('R:21 G:75 B:57 ITEM:R DEST:S', 'r');
+log('SCAN GDN/DAEJEON/0004', 'dim');
+log('R:19 G:28 B:60 ITEM:Y DEST:D', 'y');
+
+/* ============ 상태 패널 ============ */
+const $ = id => document.getElementById(id);
+$('bins').innerHTML = Object.keys(REG).map(r => `<div class="bin"><div class="bh"><span class="rg" style="background:${REG[r].color}"></span>${REG[r].name}<b id="c-${r}">0</b></div>
+  <div class="mini">${ITEMS.map(c => `<span><i style="background:#${COLORS[c].toString(16).padStart(6, '0')}"></i><em id="c-${r}-${c}">0</em></span>`).join('')}</div></div>`).join('');
+function updateCounts() {
+  for (const r in counts) { let t = 0; for (const c of ITEMS) { t += counts[r][c]; $(`c-${r}-${c}`).textContent = counts[r][c]; } $('c-' + r).textContent = t; }
+}
+updateCounts();
+function updatePanel() {
+  const pwm = sim.motor ? 180 : 0;
+  $('v-motor').textContent = pwm; $('b-motor').style.width = (pwm / 255 * 100) + '%';
+  const ir = $('v-ir'); ir.textContent = sim.ir ? 'LOW · 감지' : 'HIGH'; ir.classList.toggle('on', sim.ir);
+  const R = sim.read;
+  for (const [k, i] of [['r', 1], ['g', 2], ['b', 3]]) {
+    const val = R && R.shown >= i ? R[k] : null;
+    $('v-' + k).textContent = val == null ? '–' : val;
+    $('b-' + k).style.width = val == null ? '0%' : Math.min(100, val) + '%';
+  }
+  $('v-sg').textContent = Math.round(GATES.S.angle) + '°'; $('b-sg').style.width = (GATES.S.angle / 180 * 100) + '%';
+  $('v-qr').textContent = sim.lastScan ? `${sim.lastScan.code} → ${REG[sim.lastScan.region].name}` : '대기';
+  $('v-sy').textContent = Math.round(GATES.D.angle) + '°'; $('b-sy').style.width = (GATES.D.angle / 180 * 100) + '%';
+  const dot = $('hud-dot'), st = $('hud-state');
+  if (explodeCur > .01) { dot.className = 'dot'; st.textContent = '분해도 보기 · 시뮬레이션 정지'; }
+  else if (!sim.running) { dot.className = 'dot'; st.textContent = '일시정지'; }
+  else if (sim.phase === 'read') { dot.className = 'dot warn'; st.textContent = '벨트 정지 · 품목(색상) 측정 중'; }
+  else if (feeder.phase !== 'idle') { dot.className = 'dot ok'; st.textContent = '매거진에서 블록 투입'; }
+  else if (sim.scanT > 0 && sim.lastScan) { dot.className = 'dot ok'; st.textContent = `QR 판독 · ${REG[sim.lastScan.region].name}행`; }
+  else { dot.className = 'dot ok'; st.textContent = '벨트 가동'; }
+}
+
+/* ============ 라벨 / 선택 ============ */
+const labelsEl = $('labels');
+let showLabels = false, selected = null;
+for (const id in PARTS) {
+  const d = document.createElement('div'); d.className = 'tag'; d.textContent = PARTS[id].name; d.hidden = true; labelsEl.appendChild(d); PARTS[id].tag = d;
+}
+const selBox = new THREE.BoxHelper(undefined, 0xff7a2b); selBox.visible = false; scene.add(selBox);
+function select(id) {
+  selected = id;
+  for (const k in PARTS) PARTS[k].tag.classList.toggle('sel', k === id);
+  const info = $('info');
+  if (!id) { selBox.visible = false; info.innerHTML = '<h2>부품 정보</h2><div class="empty">3D 화면에서 부품을 클릭하면 사양과 아두이노 핀 연결이 여기에 표시됩니다.</div>'; return; }
+  const P = PARTS[id];
+  selBox.setFromObject(P.group); selBox.visible = true;
+  info.innerHTML = `<h2>부품 정보</h2><h3></h3><div class="role"></div><ul></ul>${P.pins ? '<div class="pins"></div>' : ''}`;
+  info.querySelector('h3').textContent = P.name; info.querySelector('.role').textContent = P.role;
+  info.querySelector('ul').innerHTML = P.spec.map(s => `<li>${esc(s)}</li>`).join('');
+  if (P.pins) info.querySelector('.pins').textContent = P.pins;
+}
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+let downAt = null;
+canvas.addEventListener('pointerdown', e => { downAt = e.button === 0 ? [e.clientX, e.clientY] : null; });
+canvas.addEventListener('pointerup', e => {
+  const start = downAt;
+  downAt = null;
+  if (e.button !== 0 || !start || Math.hypot(e.clientX - start[0], e.clientY - start[1]) > 5) return;
+  const r = canvas.getBoundingClientRect();
+  ndc.set((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  const hits = ray.intersectObjects(root.children, true);
+  for (const h of hits) {
+    let o = h.object; while (o && !o.userData.partId) o = o.parent;
+    if (o) { select(o.userData.partId === selected ? null : o.userData.partId); return; }
+  }
+  select(null);
+});
+
+/* ============ 카메라 프리셋 ============ */
+const VIEWS = {
+  all: [[-34, 40, 56], [4, 4, 0]], sensor: [[-20, 19, 17], [-6, 9, 0]], gate: [[2, 34, 30], [13, 6, 0]],
+  ard: [[-16, 15, 34], [-5, 2.5, 15]], top: [[4, 82, .01], [4, 0, 0]]
+};
+let camAnim = null;
+controls.addEventListener('start', () => { camAnim = null; });
+function goView(k) {
+  document.querySelectorAll('.views button').forEach(b => b.setAttribute('aria-pressed', b.dataset.view === k));
+  const [p, t] = VIEWS[k];
+  camAnim = { t: 0, p0: camera.position.clone(), t0: controls.target.clone(), p1: new THREE.Vector3(...p), t1: new THREE.Vector3(...t) };
+}
+document.querySelectorAll('.views button').forEach(b => b.addEventListener('click', () => goView(b.dataset.view)));
+
+/* ============ 컨트롤 ============ */
+$('play').addEventListener('click', () => { sim.running = !sim.running; $('play').textContent = sim.running ? '일시정지' : '재생'; });
+$('speed').addEventListener('change', e => sim.speed = parseFloat(e.target.value));
+$('auto').addEventListener('click', () => { sim.auto = !sim.auto; $('auto').setAttribute('aria-pressed', sim.auto); });
+for (const k of ['R', 'Y', 'G']) $('add-' + k).addEventListener('click', () => { if (sim.queue.length < 6) sim.queue.push({ c: k, r: $('dest').value }); });
+let explodeTarget = 0, explodeCur = 0;
+$('explode').addEventListener('input', e => { explodeTarget = parseFloat(e.target.value); });
+$('labelsBtn').addEventListener('click', () => { showLabels = !showLabels; $('labelsBtn').setAttribute('aria-pressed', showLabels); });
+$('clear').addEventListener('click', () => {
+  for (const r in binContents) for (const c of ITEMS) { for (const b of binContents[r][c]) disposeBlock(b.mesh); binContents[r][c] = []; counts[r][c] = 0; }
+  updateCounts();
+});
+
+/* ============ 리사이즈 ============ */
+function resize() {
+  const w = stage.clientWidth, h = stage.clientHeight; if (!w || !h) return;
+  renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(stage); resize();
+
+/* ============ 루프 ============ */
+const clock = new THREE.Clock();
+const tmp = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+let panelT = 0;
+function frame() {
+  const dt = Math.min(clock.getDelta(), .05);
+  // 분해
+  explodeCur += (explodeTarget - explodeCur) * Math.min(1, dt * 6);
+  if (Math.abs(explodeTarget - explodeCur) < .001) explodeCur = explodeTarget;
+  const e = explodeCur * explodeCur * (3 - 2 * explodeCur);
+  for (const id in PARTS) { const P = PARTS[id]; P.group.position.copy(P.base).addScaledVector(P.explode, e); }
+  const exploded = explodeCur > .01;
+  wireGroup.visible = !exploded;
+  for (const b of blocks) b.mesh.visible = !exploded;
+
+  if (sim.running && !exploded) step(dt * sim.speed);
+
+  // 벨트 텍스처 이동
+  beltTex.offset.x = -sim.beltOffset / 7; beltBump.offset.x = beltTex.offset.x;
+  // 센서 LED
+  const reading = sim.phase === 'read' && !exploded;
+  const li = reading ? 2.2 + Math.sin(sim.t * 40) * .2 : .25;
+  for (const l of sensorLEDs) l.material.emissiveIntensity = li;
+  sensorLight.intensity = reading ? 1.3 : 0.15;
+  // QR 스캐너 조명
+  const scanning = sim.scanT > 0 && !exploded;
+  scanWin.material.emissiveIntensity = scanning ? 3 : .2;
+  scanBeam.visible = scanning;
+  if (scanning) {
+    const topY = BELT_TOP + BS, h = 11.95 - topY;
+    scanBeam.scale.set(1, h, 1); scanBeam.position.set(QX, topY + h / 2, 0);
+    scanBeam.material.opacity = .22 + Math.sin(performance.now() / 40) * .06;
+  }
+  // IR 빔
+  irGroup.userData.led.material.emissiveIntensity = sim.ir ? 2.5 : 0;
+  irBeam.visible = !exploded;
+  if (irBeam.visible) {
+    const from = irGroup.localToWorld(tmp.set(0, 0, 2.9)).clone();
+    const hitY = sim.ir ? BELT_TOP + BS - .1 : BELT_TOP;
+    const dir = IR_AIM.clone().sub(IR_POS).normalize();
+    const tHit = (hitY - from.y) / dir.y; const to = from.clone().addScaledVector(dir, tHit);
+    const len = from.distanceTo(to);
+    irBeam.position.copy(from).add(to).multiplyScalar(.5); irBeam.scale.set(1, len, 1);
+    irBeam.quaternion.setFromUnitVectors(up, dir);
+    irBeam.material.opacity = sim.ir ? .55 : .12;
+  }
+  // 카메라 애니메이션
+  if (camAnim) {
+    camAnim.t = Math.min(1, camAnim.t + dt / .9); const k = 1 - Math.pow(1 - camAnim.t, 3);
+    camera.position.lerpVectors(camAnim.p0, camAnim.p1, k); controls.target.lerpVectors(camAnim.t0, camAnim.t1, k);
+    if (camAnim.t >= 1) camAnim = null;
+  }
+  controls.update();
+  if (selected) selBox.setFromObject(PARTS[selected].group);
+  // 라벨
+  const w = stage.clientWidth, h = stage.clientHeight;
+  for (const id in PARTS) {
+    const P = PARTS[id], tag = P.tag;
+    if (!showLabels && id !== selected) { tag.hidden = true; continue; }
+    tmp.copy(P.anchor).add(P.group.position).sub(P.base).project(camera);
+    if (tmp.z > 1 || tmp.x < -1.1 || tmp.x > 1.1 || tmp.y < -1.1 || tmp.y > 1.1) { tag.hidden = true; continue; }
+    tag.hidden = false;
+    tag.style.transform = `translate(${(tmp.x * .5 + .5) * w}px, ${(-tmp.y * .5 + .5) * h - 9}px) translate(-50%,-100%)`;
+  }
+  // 패널
+  panelT += dt;
+  if (panelT > .1) { panelT = 0; updatePanel(); setLine(codeLineForState()); }
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script>
+
+</body></html>

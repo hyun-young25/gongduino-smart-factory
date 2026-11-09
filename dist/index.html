@@ -1,0 +1,802 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>공두이노 스마트 팩토리</title>
+<meta name="description" content="공두이노 스마트 팩토리의 전체 3D 공장 배치도와 색상분류 컨베이어 시뮬레이터">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: 시뮬레이터와 같은 구조 — 얇은 헤더 + 탭, 3D 스테이지(오버레이 칩·컨트롤 바), 오른쪽 상태 패널 */
+:root {
+  --bg: #eceeed; --panel: #ffffff; --panel-2: #f4f5f4; --fg: #15191c; --muted: #5b646c; --line: #d8dcdc;
+  --accent: #e1600d; --accent-ink: #ffffff; --hl: rgba(225,96,13,.13);
+  --stage: #dfe3e4; --floor: #b2bcc5; --ok: #1d8a47; --warn: #b98000; --bad: #c42a1f;
+  --sc-wall: #d4dce3; --sc-out: #8794a0;
+  --d-seoul: #3b6fd8; --d-daejeon: #8a3fb8; --d-busan: #14958f;
+  --f-ui: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --f-code: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111417; --panel: #191c20; --panel-2: #1f2328; --fg: #e7eaed; --muted: #98a1aa; --line: #2b3137;
+    --accent: #ff7a2b; --accent-ink: #1a0d04; --hl: rgba(255,122,43,.17);
+    --stage: #1b1f23; --floor: #9aa4ad; --ok: #3fbf70; --warn: #e2ad2b; --bad: #ef5a4c;
+    --sc-wall: #b7c1ca; --sc-out: #64727f;
+    --d-seoul: #6c9cff; --d-daejeon: #c58af0; --d-busan: #4fd1c5;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111417; --panel: #191c20; --panel-2: #1f2328; --fg: #e7eaed; --muted: #98a1aa; --line: #2b3137;
+  --accent: #ff7a2b; --accent-ink: #1a0d04; --hl: rgba(255,122,43,.17);
+  --stage: #1b1f23; --floor: #9aa4ad; --ok: #3fbf70; --warn: #e2ad2b; --bad: #ef5a4c;
+  --sc-wall: #b7c1ca; --sc-out: #64727f;
+  --d-seoul: #6c9cff; --d-daejeon: #c58af0; --d-busan: #4fd1c5;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--f-ui); font-size: 14px; line-height: 1.5; }
+.mono { font-family: var(--f-code); font-variant-numeric: tabular-nums; }
+
+.top {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px;
+  padding-block: 14px 12px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.brand { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; min-width: 0; }
+.brand h1 { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -.01em; text-wrap: balance; }
+.brand p { margin: 0; color: var(--muted); font-size: 13px; }
+.tabs { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 8px; flex-wrap: wrap; }
+.tabs button {
+  font: inherit; font-size: 13px; font-weight: 500; color: var(--muted); background: transparent;
+  border: 0; border-radius: 6px; padding: 5px 12px; cursor: pointer;
+}
+.tabs button[aria-pressed="true"] { background: var(--panel); color: var(--fg); font-weight: 600; box-shadow: 0 0 0 1px var(--line); }
+.tabs button:hover { color: var(--fg); }
+
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; border-top: 1px solid var(--line); }
+.stage { position: relative; background: var(--stage); height: clamp(460px, calc(100vh - 70px), 860px); overflow: hidden; min-width: 0; }
+.stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.stage.hovering canvas { cursor: pointer; }
+
+.chips { position: absolute; top: 12px; left: calc(12px + env(safe-area-inset-left, 0px)); right: 12px; display: flex; flex-wrap: wrap; gap: 6px; pointer-events: none; }
+.chip {
+  display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border-radius: 999px;
+  background: var(--panel); color: var(--fg); font-size: 12.5px; font-weight: 600; border: 1px solid var(--line);
+}
+.chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent); }
+.chip.paused .dot { background: var(--warn); box-shadow: none; }
+
+.controls {
+  position: absolute; left: calc(12px + env(safe-area-inset-left, 0px)); bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  max-width: calc(100% - 24px); display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 8px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line);
+}
+.controls .label { color: var(--muted); font-size: 12.5px; padding-left: 4px; }
+.btn, .sel {
+  font: inherit; font-size: 13px; font-weight: 600; padding: 6px 12px; border-radius: 7px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--panel-2); color: var(--fg);
+}
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn:hover, .sel:hover { border-color: color-mix(in srgb, var(--fg) 30%, var(--line)); }
+.btn.primary:hover { filter: brightness(1.06); border-color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.callout {
+  position: absolute; left: 0; top: 0; transform: translate(-50%, calc(-100% - 10px));
+  display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 12px; border-radius: 10px;
+  background: var(--panel); border: 1px solid var(--line); box-shadow: 0 8px 24px rgba(0,0,0,.18);
+  white-space: nowrap; pointer-events: auto;
+}
+.callout::after {
+  content: ""; position: absolute; left: 50%; bottom: -6px; width: 10px; height: 10px; transform: translateX(-50%) rotate(45deg);
+  background: var(--panel); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+}
+.callout[hidden] { display: none; }
+.callout .c-code { font-family: var(--f-code); font-size: 11px; color: var(--muted); display: block; line-height: 1.2; }
+.callout .c-name { font-weight: 700; font-size: 13.5px; }
+.callout .go {
+  text-decoration: none; font-weight: 700; font-size: 13px; padding: 6px 11px; border-radius: 7px;
+  background: var(--accent); color: var(--accent-ink);
+}
+.callout .soon { font-size: 12px; color: var(--muted); border: 1px dashed var(--line); padding: 5px 9px; border-radius: 7px; }
+
+.panel {
+  background: var(--panel); border-left: 1px solid var(--line); min-width: 0; overflow-y: auto;
+  height: clamp(460px, calc(100vh - 70px), 860px);
+}
+.section {
+  padding-block: 16px; border-bottom: 1px solid var(--line);
+  padding-left: 18px; padding-right: max(18px, env(safe-area-inset-right, 0px));
+}
+.section:last-child { border-bottom: 0; }
+.section h2 { margin: 0 0 10px; font-size: 13px; font-weight: 700; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.section h2 small { font-family: var(--f-code); font-weight: 400; font-size: 11px; color: var(--muted); letter-spacing: .06em; }
+
+.lines { display: grid; gap: 6px; }
+.line-item {
+  display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 10px;
+  text-align: left; font: inherit; color: var(--fg); background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; cursor: pointer;
+}
+.line-item:hover { border-color: color-mix(in srgb, var(--fg) 25%, var(--line)); }
+.line-item[aria-pressed="true"] { border-color: var(--accent); background: var(--hl); }
+.line-item .sd { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); opacity: .5; }
+.line-item.live .sd { background: var(--ok); opacity: 1; }
+.line-item .nm { font-weight: 600; font-size: 13.5px; display: block; line-height: 1.3; }
+.line-item .cd { font-family: var(--f-code); font-size: 11px; color: var(--muted); }
+.pill { font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.live .pill { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+
+.detail h3 { margin: 0; font-size: 16px; font-weight: 700; text-wrap: balance; }
+.detail .dcode { font-family: var(--f-code); font-size: 11px; color: var(--muted); letter-spacing: .06em; }
+.detail p { margin: 8px 0 12px; color: var(--muted); font-size: 13px; }
+.specs { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px 14px; margin: 0 0 14px; font-size: 12.5px; }
+.specs dt { color: var(--muted); }
+.specs dd { margin: 0; text-align: right; font-family: var(--f-code); }
+.cta {
+  display: flex; justify-content: center; align-items: center; gap: 8px; width: 100%; text-decoration: none;
+  font-weight: 700; font-size: 14px; padding: 10px 14px; border-radius: 8px; background: var(--accent); color: var(--accent-ink);
+}
+.cta:hover { filter: brightness(1.06); }
+.cta.off { background: var(--panel-2); color: var(--muted); border: 1px dashed var(--line); cursor: default; filter: none; }
+
+.rows { display: grid; gap: 7px; font-size: 13px; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.row .k { color: var(--muted); }
+.row .v { font-family: var(--f-code); font-variant-numeric: tabular-nums; }
+.dock { display: grid; grid-template-columns: 54px minmax(0, 1fr) 34px; gap: 10px; align-items: center; font-size: 13px; }
+.dock .bar { height: 6px; border-radius: 3px; background: var(--panel-2); overflow: hidden; border: 1px solid var(--line); }
+.dock .bar i { display: block; height: 100%; width: 0; border-radius: 3px; transition: width .4s; }
+.dock .n { text-align: right; font-family: var(--f-code); }
+.dock .nm::before { content: ""; display: inline-block; width: 3px; height: 12px; border-radius: 2px; margin-right: 7px; vertical-align: -1px; background: var(--c); }
+.verdict { margin-top: 10px; font-size: 12.5px; color: var(--muted); }
+.verdict b { color: var(--fg); }
+.note { font-size: 12px; color: var(--muted); margin: 10px 0 0; }
+.model-sources {font-size:12px;color:var(--muted)}
+.model-sources summary {cursor:pointer;font-weight:600;color:var(--fg)}
+.model-sources ul {padding-left:18px;line-height:1.8}
+.model-sources a {color:var(--accent)}
+#modelStatus {margin:0 0 10px;font-size:12px;color:var(--muted)}
+#robotJobs {margin-top:12px}
+.btn:disabled {opacity:.45;cursor:default}
+
+@media (max-width: 960px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .stage { height: max(380px, 62vh); }
+  .panel { height: auto; border-left: 0; border-top: 1px solid var(--line); }
+  .section { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+}
+@media (max-width: 520px) {
+  .controls .label { display: none; }
+  .chips .hint { display: none; }
+}
+</style>
+
+</head><body>
+<header class="top">
+  <div class="brand">
+    <h1>공두이노 스마트 팩토리</h1>
+    <p>입고 → 보관 랙 → 작업 셀 → 로봇 이송 → 출하</p>
+  </div>
+  <nav class="tabs" aria-label="카메라 시점">
+    <button type="button" data-view="all" aria-pressed="true">전체</button>
+    <button type="button" data-view="lines" aria-pressed="false">공정 라인</button>
+    <button type="button" data-view="robots" aria-pressed="false">운반 로봇</button>
+    <button type="button" data-view="rack" aria-pressed="false">랙 집기</button>
+    <button type="button" data-view="handling" aria-pressed="false">집기 동작</button>
+    <button type="button" data-view="dock" aria-pressed="false">출하 도크</button>
+    <button type="button" data-view="vehicles" aria-pressed="false">차량</button>
+    <button type="button" data-view="top" aria-pressed="false">위에서</button>
+  </nav>
+</header>
+
+<main class="layout">
+  <section class="stage" id="stage" aria-label="공장 3D 화면">
+    <div class="chips">
+      <span class="chip" id="runChip"><span class="dot"></span><span id="runText">LINE 01 가동</span></span>
+      <span class="chip hint">라인 클릭 선택 · 왼쪽 드래그 회전 · 휠 누르고 드래그 이동 · 휠 굴려 확대/축소</span>
+      <span class="chip" id="robotAction">컨베이어에서 상자 집기 대기</span>
+    </div>
+    <div class="callout" id="callout" hidden></div>
+    <div class="controls">
+      <button type="button" class="btn primary" id="pauseBtn">일시정지</button>
+      <select class="sel" id="speedSel" aria-label="속도">
+        <option value="0.5">0.5×</option>
+        <option value="1" selected>1×</option>
+        <option value="2">2×</option>
+        <option value="3">3×</option>
+      </select>
+      <span class="label">AGV</span>
+      <button type="button" class="btn" id="resetBtn">통계 초기화</button>
+    </div>
+  </section>
+
+  <aside class="panel">
+    <div class="section">
+      <h2>공정 라인 <small>4 LINES</small></h2>
+      <div class="lines" id="lineList"></div>
+    </div>
+    <div class="section detail" id="detail"></div>
+    <div class="section">
+      <h2>실시간 상태 <small>SIMULATION</small></h2>
+      <div class="rows">
+        <div class="row"><span class="k">판독 완료</span><span class="v" id="sRead">0</span></div>
+        <div class="row"><span class="k">컨베이어 집기 대기</span><span class="v" id="sQueue">0</span></div>
+        <div class="row"><span class="k">로봇 상자 운반 중</span><span class="v" id="sAgv">0 / 8</span></div>
+        <div class="row"><span class="k">경과 시간</span><span class="v" id="sTime">00:00</span></div>
+      </div>
+      <div class="verdict">마지막 판정: <b id="sLast">아직 없음</b></div>
+    </div>
+    <div class="section">
+      <h2>로봇 작업 <small>PICK & PLACE</small></h2>
+      <div class="rows" style="margin-bottom:10px">
+        <div class="row"><span class="k">집기용 랙 재고</span><span class="v" id="sRackStock">24 / 24</span></div>
+        <div class="row"><span class="k">랙 → 컨베이어 투입</span><span class="v" id="sRackFed">0</span></div>
+      </div>
+      <button class="btn" id="restockBtn" type="button">랙 재입고</button>
+      <div class="rows" id="robotJobs"></div>
+      <p class="note">‘랙 집기’는 선반에서 연결 컨베이어로, ‘집기 동작’은 분류 라인에서 출하 도크로 옮기는 모습입니다. 집기용 상자 24개를 다 쓰면 ‘랙 재입고’로 채울 수 있습니다.</p>
+    </div>
+    <div class="section">
+      <h2>목적지별 출하 <small>3 DOCKS</small></h2>
+      <div class="rows" id="dockRows"></div>
+      <p class="note">QR = 목적지 지역 · 색상 = 품목. 로봇이 LINE 01에서 상자를 집어 목적지 도크에 내려놓으면 출하 수량이 증가합니다.</p>
+    </div>
+    <div class="section">
+      <p id="modelStatus" role="status">장비 모델 불러오는 중…</p>
+      <details class="model-sources">
+        <summary>3D 모델 출처 · CC0</summary>
+        <ul>
+          <li><a href="https://www.innerscene.com/tools/library/3d-parts/amr-with-arm-6dd4556c" target="_blank" rel="noopener">운반 로봇 · Innerscene</a></li>
+          <li><a href="https://www.innerscene.com/tools/library/3d-parts/7-5-t-class-box-truck-with-roll-up-door-12baea66" target="_blank" rel="noopener">화물차 · Innerscene</a></li>
+          <li><a href="https://3dassets.dev/assets/parcel-depot-and-sorting-hall-parcel-depot-and-sorting-87ae9888" target="_blank" rel="noopener">컨베이어 · 3DAssets</a></li>
+        </ul>
+        <p>공개된 범용 장비 모델을 공장 배치에 맞춰 조정했습니다.</p>
+      </details>
+    </div>
+  </aside>
+</main>
+
+<script src="vendor/three.min.js"></script>
+<script src="vendor/OrbitControls.js"></script>
+<script src="vendor/GLTFLoader.js"></script>
+<script src="vendor/RoomEnvironment.js"></script>
+<script src="factory-arm.js"></script>
+<script src="factory-supply.js"></script>
+<script src="factory-logistics.js"></script>
+<script src="factory-layout.js"></script>
+<script>
+(() => {
+/* ───────── 설정: 라인을 추가·연결하려면 여기만 고치면 됩니다 ───────── */
+const LINES = [
+  { id: 'L01', code: 'LINE 01', name: '색상분류 컨베이어', x: -8, z: 11, length:36, labelX:-19, labelZ:8.7, live: true,
+    url: 'conveyor.html',
+    desc: 'TCS3200 색상 센서로 품목(빨강·노랑·초록)을, QR로 목적지(서울·대전·부산)를 판독해 서보 게이트로 분류합니다.',
+    specs: [['벨트 모터', 'PWM · D3'], ['QR 스캐너', 'D11'], ['IR 센서', 'D2'], ['색상 센서', 'TCS3200'], ['서울 게이트', 'D9'], ['대전 게이트', 'D10']] },
+  { id: 'L02', code: 'LINE 02', name: '무게 선별 컨베이어', x:-11, z:8.2, length:4.4, rotation:Math.PI/2, labelX:-11, labelZ:8.7, live: false, url: null,
+    desc: '로드셀로 상자 무게를 재서 규격을 벗어난 상자를 걸러내는 라인입니다.',
+    specs: [['센서', '로드셀 · HX711'], ['상태', '시뮬레이터 준비 중']] },
+  { id: 'L03', code: 'LINE 03', name: '바코드 검수 컨베이어', x:-3, z:8.2, length:4.4, rotation:Math.PI/2, labelX:-3, labelZ:8.7, live: false, url: null,
+    desc: '바코드를 읽어 주문 정보와 맞는지 검수하는 라인입니다.',
+    specs: [['센서', '바코드 리더'], ['상태', '시뮬레이터 준비 중']] },
+  { id: 'L04', code: 'LINE 04', name: '포장 컨베이어', x:5, z:8.2, length:4.4, rotation:Math.PI/2, labelX:5, labelZ:8.7, live: false, url: null,
+    desc: '분류가 끝난 블록을 상자에 담아 출하 준비를 하는 라인입니다.',
+    specs: [['구동', '스텝 모터'], ['상태', '시뮬레이터 준비 중']] },
+];
+const DOCKS = [
+  { key: 'seoul',   name: '서울', en: 'SEOUL',   z: -9, css: '--d-seoul' },
+  { key: 'daejeon', name: '대전', en: 'DAEJEON', z: 0,  css: '--d-daejeon' },
+  { key: 'busan',   name: '부산', en: 'BUSAN',   z: 9,  css: '--d-busan' },
+];
+const COLORS = [
+  { key: 'red', name: '빨강', hex: 0xe0402f },
+  { key: 'yellow', name: '노랑', hex: 0xf2c230 },
+  { key: 'green', name: '초록', hex: 0x2f9e55 },
+];
+const LINE_X0 = -26, LINE_X1 = 10, LINE_LEN = LINE_X1 - LINE_X0, LINE_CX = (LINE_X0 + LINE_X1) / 2;
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let followRack=false;
+const sceneLabels=[];
+
+/* ───────── 토큰 ───────── */
+const tok = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const col = name => new THREE.Color(tok(name) || '#888');
+// Three r128 expects linear material colours; CSS/hex colours are sRGB.
+const surfaceColor = value => new THREE.Color(value).convertSRGBToLinear();
+const accent = new THREE.Color(0xff7a2b);
+
+/* ───────── 씬 기본 ───────── */
+const stage = document.getElementById('stage');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.9;
+stage.prepend(renderer.domElement);
+renderer.domElement.setAttribute('aria-label', '공장 전체 3D 배치도. 라인 클릭으로 선택, 왼쪽 드래그로 회전, 가운데 휠 버튼 드래그로 화면 이동, 휠을 굴려 확대 및 축소');
+
+const scene = new THREE.Scene();
+const environmentGenerator = new THREE.PMREMGenerator(renderer);
+const environmentRoom = new THREE.RoomEnvironment();
+scene.environment = environmentGenerator.fromScene(environmentRoom, 0.04).texture;
+environmentGenerator.dispose();
+const camera = new THREE.PerspectiveCamera(38, 1, 0.5, 400);
+camera.position.set(-40, 43, 53);
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.target.set(3, 0, 0);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI * 0.47;
+controls.minDistance = 8; controls.maxDistance = 120;
+controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.PAN };
+controls.enablePan = true;
+controls.screenSpacePanning = true;
+controls.addEventListener('start',()=>{followRack=false;});
+
+const hemi = new THREE.HemisphereLight(0xffffff, 0x8a9096, 0.85);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xffffff, 0.75);
+sun.position.set(18, 40, 22);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -48, right: 48, top: 30, bottom: -30, near: 5, far: 110 });
+sun.shadow.bias = -0.0006;
+scene.add(sun);
+
+const M = (c, o = {}) => new THREE.MeshStandardMaterial(Object.assign({ color: surfaceColor(c), roughness: 0.75, metalness: 0.05, envMapIntensity: 0.22 }, o));
+const mats = {
+  floor: M(0xe9ecec, { roughness: 0.95 }), wall: M(0xf7f8f7, { roughness: 0.9 }), out: M(0xa9b0b5, { roughness: 1 }),
+  pillar: M(0x2f3a44), lane: M(0xe2ad2b, { roughness: 0.6 }), alu: M(0xc9cfd4, { metalness: 0.4, roughness: 0.45 }),
+  belt: M(0x24332d, { roughness: 0.9 }), leg: M(0x8b949b, { metalness: 0.3 }), dark: M(0x1d2125, { roughness: 0.6 }),
+  orange: M(0xff7a2b, { roughness: 0.5 }), grey: M(0x7d868e, { roughness: 0.6 }), card: M(0xc99a5b, { roughness: 0.9 }),
+  card2: M(0xb88a4f, { roughness: 0.9 }), wood: M(0x9c7a4f, { roughness: 0.95 }), rackPost: M(0x2b3f5c),
+  rackBeam: M(0xe2ad2b), white: M(0xeceeef, { roughness: 0.5 }), glass: M(0x22303a, { roughness: 0.2, metalness: 0.4 }),
+  tire: M(0x16191c, { roughness: 0.9 }), board: M(0x1f5fbf, { roughness: 0.5 }), clear: M(0xbfe3ff, { transparent: true, opacity: 0.25, roughness: 0.1 }),
+  yellow: M(0xf2c230, { roughness: 0.5 }), plate: M(0x8d969d, { roughness: 0.8 }),
+};
+function box(parent, w, h, d, mat, x, y, z, shadow = true) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  m.position.set(x, y, z); m.castShadow = shadow; m.receiveShadow = true; parent.add(m); return m;
+}
+function cyl(parent, r, len, mat, x, y, z, axis = 'y', seg = 20) {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, seg), mat);
+  if (axis === 'x') m.rotation.z = Math.PI / 2; if (axis === 'z') m.rotation.x = Math.PI / 2;
+  m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true; parent.add(m); return m;
+}
+
+/* ───────── 건물 ───────── */
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 36), mats.floor);
+floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
+const outside = new THREE.Mesh(new THREE.PlaneGeometry(16, 40), mats.out);
+outside.rotation.x = -Math.PI / 2; outside.position.set(38, -0.02, 0); outside.receiveShadow = true; scene.add(outside);
+// 벽
+box(scene, 60, 6, 0.3, mats.wall, 0, 3, -18);
+box(scene, 0.3, 6, 36, mats.wall, -30, 3, 0);
+// 오른쪽 벽(도크 문 3개)
+const doorW = 3.6, segs = [[-18, DOCKS[0].z - doorW / 2], [DOCKS[0].z + doorW / 2, DOCKS[1].z - doorW / 2], [DOCKS[1].z + doorW / 2, DOCKS[2].z - doorW / 2], [DOCKS[2].z + doorW / 2, 18]];
+for (const [a, b] of segs) box(scene, 0.3, 6, b - a, mats.wall, 30, 3, (a + b) / 2);
+for (const d of DOCKS) {
+  box(scene, 0.3, 2.2, doorW, mats.wall, 30, 4.9, d.z);
+  box(scene, 0.35, 3.8, 0.18, mats.yellow, 30, 1.9, d.z - doorW / 2);
+  box(scene, 0.35, 3.8, 0.18, mats.yellow, 30, 1.9, d.z + doorW / 2);
+  box(scene, 2.6, 0.06, 3.2, mats.plate, 28.7, 0.03, d.z, false);
+}
+for (let x = -26; x <= 26; x += 8) box(scene, 0.5, 6.2, 0.5, mats.pillar, x, 3.1, -17.6);
+for (let z = -10; z <= 14; z += 8) box(scene, 0.5, 6.2, 0.5, mats.pillar, -29.6, 3.1, z);
+
+const warehouse=FactoryLayout.create({scene,M,mats,box});
+
+/* ───────── 컨베이어 ───────── */
+const lineObjs = [];
+function makeConveyor(L) {
+  const len=L.length||LINE_LEN;
+  const g = new THREE.Group(); g.position.set(L.x ?? LINE_CX, 0, L.z);g.rotation.y=L.rotation||0;scene.add(g);
+  const fallback = new THREE.Group(); g.add(fallback);
+  const frame = mats.alu.clone();
+  const beltMat = mats.belt.clone();
+  const capMat = L.live ? mats.orange : mats.grey;
+  box(fallback, len, 0.08, 1.2, beltMat, 0, 0.92, 0);
+  box(fallback, len, 0.24, 0.1, frame, 0, 0.88, 0.66); box(fallback, len, 0.24, 0.1, frame, 0, 0.88, -0.66);
+  for (const sx of [-1, 1]) {
+    cyl(fallback, 0.15, 1.34, frame, sx * len / 2, 0.9, 0, 'z');
+    for (const sz of [-1, 1]) cyl(fallback, 0.36, 0.12, capMat, sx * len / 2, 0.9, sz * 0.74, 'z', 28);
+  }
+  for (let x = -len / 2 + 0.6; x <= len / 2 - 0.5; x += 3.2) {
+    box(fallback, 0.1, 0.8, 0.1, mats.leg, x, 0.4, 0.55); box(fallback, 0.1, 0.8, 0.1, mats.leg, x, 0.4, -0.55);
+    box(fallback, 0.08, 0.08, 1.1, mats.leg, x, 0.25, 0);
+  }
+  // 선택 표시 바닥
+  const glowMat = new THREE.MeshBasicMaterial({ color: 0xff7a2b, transparent: true, opacity: 0, depthWrite: false });
+  const glow = new THREE.Mesh(new THREE.PlaneGeometry(len + 2.4, 2.9), glowMat);
+  glow.rotation.x = -Math.PI / 2; glow.position.y = 0.02; g.add(glow);
+  // 클릭 판정
+  const hit = new THREE.Mesh(new THREE.BoxGeometry(len + 1.4, 2.4, 2.6), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }));
+  hit.position.y = 1.1; hit.userData.line = L; g.add(hit);
+
+  const o = { L, length:len, g, fallback, frame, beltMat, glowMat, hit, hover: 0, sel: 0 };
+  if (L.live) {
+    // 센서 게이트(QR + 색상)
+    const sx = 15;
+    for (const z of [-0.78, 0.78]) box(g, 0.24, 1.7, 0.24, mats.dark, sx, 0.85, z);
+    box(g, 0.34, 0.3, 1.9, mats.dark, sx, 1.75, 0);
+    o.scanner = cyl(g, 0.13, 0.5, mats.yellow, sx, 1.45, 0);
+    o.scanLight = new THREE.PointLight(0xff7a2b, 0, 3); o.scanLight.position.set(sx, 1.2, 0); g.add(o.scanLight);
+    // 서보 게이트 2개
+    for (const gx of [16.3, 17.2]) {
+      cyl(g, 0.1, 0.5, mats.white, gx, 1.2, -0.78);
+      const arm = box(g, 0.06, 0.32, 1.1, mats.white, gx, 1.15, -0.78); arm.rotation.y = Math.PI/2;
+    }
+    // 아두이노
+    const ab = new THREE.Group(); ab.position.set(15, 0, 1.9); g.add(ab);
+    box(ab, 1.5, 0.7, 1.0, mats.clear, 0, 0.35, 0, false);
+    box(ab, 1.2, 0.06, 0.8, mats.board, 0, 0.74, 0);
+    box(ab, 0.9, 0.08, 0.1, mats.dark, 0, 0.8, -0.3); box(ab, 0.9, 0.08, 0.1, mats.dark, 0, 0.8, 0.3);
+    // 인계대
+    o.table = new THREE.Group(); o.table.position.set(len / 2 + 1.6, 0, -1.6); g.add(o.table);
+    box(o.table, 1.2, 0.08, 1.2, mats.plate, 0, 0.8, 0);
+    for (const a of [-0.5, 0.5]) for (const b of [-0.5, 0.5]) box(o.table, 0.07, 0.8, 0.07, mats.leg, a, 0.4, b);
+  }
+  lineObjs.push(o);
+  return o;
+}
+LINES.forEach(makeConveyor);
+const live = lineObjs.find(o => o.L.live);
+
+/* ───────── 트럭 ───────── */
+const trucks = [];
+for (const d of DOCKS) {
+  const group = new THREE.Group(); group.position.set(34.4, 0, d.z); scene.add(group);
+  const g = new THREE.Group(); group.add(g);
+  box(g, 7.2, 3.0, 2.8, mats.white, 0, 2.25, 0);
+  box(g, 7.2, 0.3, 2.2, mats.dark, 0, 0.6, 0);
+  box(g, 2.0, 2.3, 2.6, mats.white, 4.7, 1.75, 0);
+  box(g, 0.06, 1.0, 2.2, mats.glass, 5.72, 2.3, 0);
+  for (const wx of [-2.5, -1.4, 4.6]) for (const wz of [-1.15, 1.15]) cyl(g, 0.45, 0.35, mats.tire, wx, 0.45, wz, 'z');
+  trucks.push({g:group,fallback:g});
+}
+
+/* ───────── 라벨(캔버스 스프라이트) ───────── */
+function labelSprite(main, sub, bar, w = 5.2) {
+  const c = document.createElement('canvas'); c.width = 640; c.height = 170;
+  const x = c.getContext('2d');
+  x.fillStyle = 'rgba(22,32,43,0.97)';
+  const r = 22; x.beginPath(); x.moveTo(r, 0); x.arcTo(640, 0, 640, 170, r); x.arcTo(640, 170, 0, 170, r); x.arcTo(0, 170, 0, 0, r); x.arcTo(0, 0, 640, 0, r); x.fill();
+  x.fillStyle = bar; x.fillRect(26, 34, 12, 102);
+  x.fillStyle = '#ffffff'; x.font = '700 62px "IBM Plex Sans KR", "Malgun Gothic", sans-serif'; x.textBaseline = 'alphabetic';
+  x.fillText(main, 62, 92);
+  x.fillStyle = '#c4d1de'; x.font = '500 32px "JetBrains Mono", monospace'; x.fillText(sub, 64, 138);
+  const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; t.anisotropy = 4;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthWrite: false }));
+  s.scale.set(w, w * 170 / 640, 1); return s;
+}
+function buildLabels() {
+  for (const o of lineObjs) {
+    const s = labelSprite('ST-0'+(lineObjs.indexOf(o)+1), o.L.name, o.L.live?'#f08320':'#f4c82e', 3.8);
+    s.position.set(o.L.labelX,3.45,o.L.labelZ);s.visible=!followRack;scene.add(s);sceneLabels.push(s);
+  }
+  for (const d of DOCKS) {
+    const s = labelSprite(d.name, 'DOCK · ' + d.en, tok(d.css), 3.6);
+    s.position.set(28.6, 4.6, d.z);s.visible=!followRack;scene.add(s);sceneLabels.push(s); d.sprite = s;
+  }
+}
+(document.fonts ? Promise.race([document.fonts.ready, new Promise(r => setTimeout(r, 1500))]) : Promise.resolve()).then(buildLabels);
+
+/* ───────── 블록 · AGV 시뮬레이션 ───────── */
+const BELT_Y = 0.96 + 0.25;
+const itemGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+const qrGeo = new THREE.BoxGeometry(0.28, 0.02, 0.28);
+const qrMat = M(0xffffff, { roughness: 0.6, envMapIntensity: 0.15 });
+const colorMats = Object.fromEntries(COLORS.map(c => [c.key, M(c.hex, { roughness: 0.45 })]));
+function makeItem(color) {
+  const m = new THREE.Mesh(itemGeo, colorMats[color.key]); m.castShadow = true;
+  const q = new THREE.Mesh(qrGeo, qrMat); q.position.y = 0.26; m.add(q); return m;
+}
+const AGV_N = 4, PARK_Z = 15.5;
+const agvs = [];
+for (let i = 0; i < AGV_N; i++) {
+  const g = new THREE.Group(); const px = 14.5 + i * 2.8; g.position.set(px, 0, PARK_Z); scene.add(g);
+  const fallback = new THREE.Group(); g.add(fallback);
+  box(scene, 1.9, 0.03, 1.6, mats.plate, px, 0.015, PARK_Z, false);
+  box(fallback, 1.0, 0.34, 1.3, mats.white, 0, 0.24, 0);
+  box(fallback, 1.02, 0.08, 1.32, mats.orange, 0, 0.2, 0);
+  box(fallback, 0.86, 0.06, 1.1, mats.grey, 0, 0.44, 0);
+  for (const a of [-0.45, 0.45]) for (const b of [-0.5, 0.5]) cyl(fallback, 0.1, 0.08, mats.tire, a, 0.1, b, 'x');
+  agvs.push({ index:i, g, fallback, px, cargo:null, arm:null, path:[], state:'idle', label:'모델 불러오는 중', job:null });
+}
+const feeders=warehouse.cellX.map((cellX,cell)=>{
+  const g=new THREE.Group();g.position.set(cellX,0,5.35);scene.add(g);
+  const fallback=new THREE.Group();g.add(fallback);
+  box(fallback,1,.34,1.3,mats.white,0,.24,0);
+  box(fallback,1.02,.08,1.32,mats.board,0,.2,0);
+  return {index:AGV_N+cell,cell,cellX,name:'랙 '+(cell+1),g,fallback,cargo:null,arm:null,path:[],state:'rack-idle',label:'모델 불러오는 중',job:null};
+});
+live.table.visible = false;
+const dockBelts = DOCKS.map(d => {
+  const g=new THREE.Group();g.position.set(28.7,0,d.z);scene.add(g);
+  const fallback=new THREE.Group();g.add(fallback);
+  box(fallback,2.4,.12,1.0,mats.belt,0,.76,0);
+  for(const x of [-.95,.95])for(const z of [-.4,.4])box(fallback,.08,.7,.08,mats.leg,x,.35,z);
+  return {g,fallback};
+});
+
+/* 파일로 제공되는 장비 모델. 로직과 선택 영역은 기존 장면에 유지합니다. */
+const assetMixers = [];
+const modelLoader = new THREE.GLTFLoader();
+function setModelLighting(root) {
+  root.traverse(node => {
+    if (!node.isMesh) return;
+    const materials = Array.isArray(node.material) ? node.material : [node.material];
+    for (const material of materials) {
+      // GLTF colours are already linear. Keep their textures and limit the studio reflection.
+      if (material.isMeshStandardMaterial) material.envMapIntensity = 0.32;
+    }
+  });
+}
+function prepareModel(source, {rotation = 0, length = null} = {}) {
+  setModelLighting(source);
+  const model = source.clone(true);
+  model.rotation.y += rotation;
+  model.updateMatrixWorld(true);
+  const bounds = new THREE.Box3().setFromObject(model);
+  const size = bounds.getSize(new THREE.Vector3());
+  const scale = length ? length / size.x : 1;
+  const centre = bounds.getCenter(new THREE.Vector3());
+  model.position.x -= centre.x;
+  model.position.y -= bounds.min.y;
+  model.position.z -= centre.z;
+  const result = new THREE.Group(); result.add(model); result.scale.setScalar(scale);
+  result.traverse(n => { if (n.isMesh) { n.castShadow = true; n.receiveShadow = true; } });
+  return result;
+}
+function replaceTrucks(gltf) {
+  const template = prepareModel(gltf.scene, {rotation:Math.PI, length:7.6});
+  for (const truck of trucks) { truck.g.add(template.clone(true)); truck.fallback.visible = false; }
+}
+function replaceRobots(gltf) {
+  setModelLighting(gltf.scene);
+  for (const robot of [...agvs,...feeders]) {
+    robot.arm=FactoryArm.create(gltf.scene,mats.alu);
+    robot.g.add(robot.arm.group); robot.fallback.visible = false;robot.label=robot.cell===undefined?'대기 중':'랙 상자 대기';
+  }
+}
+function replaceConveyors(gltf) {
+  setModelLighting(gltf.scene);
+  const finish = { charcoal: 0x171e25, steel: 0x97a8b7, paint: 0x64788b, blue: 0x196bd1, rubber: 0x11151b };
+  gltf.scene.traverse(node => {
+    if (!node.isMesh) return;
+    const materials = Array.isArray(node.material) ? node.material : [node.material];
+    for (const material of materials) {
+      if (finish[material.name] !== undefined) material.color.copy(surfaceColor(finish[material.name]));
+    }
+  });
+  for (const line of [...lineObjs,...warehouse.conveyors]) {
+    const count=Math.ceil(line.length/4),moduleLength=line.length/count;
+    for (let i = 0; i < count; i++) {
+      const model = gltf.scene.clone(true);
+      const module = new THREE.Group(); module.add(model);
+      module.rotation.y = Math.PI / 2;
+      // Source belt height 0.76 m; keep the simulation surface at 0.96 m.
+      module.scale.set(1, 0.96 / 0.76, moduleLength/4);
+      module.position.set(-line.length/2+moduleLength*(i+.5), 0, 0);
+      module.traverse(n => { if (n.isMesh) { n.castShadow = true; n.receiveShadow = true; } });
+      line.g.add(module);
+      if (gltf.animations.length) {
+        const mixer = new THREE.AnimationMixer(model);
+        gltf.animations.forEach(clip => mixer.clipAction(clip).play());
+        assetMixers.push(mixer);
+      }
+    }
+    line.fallback.visible = false;
+  }
+  for(const belt of dockBelts) {
+    const model=gltf.scene.clone(true);model.rotation.y=Math.PI/2;model.scale.set(1,.82/.76,.6);
+    model.traverse(n=>{if(n.isMesh){n.castShadow=true;n.receiveShadow=true;}});
+    belt.g.add(model);belt.fallback.visible=false;
+    if(gltf.animations.length){const mixer=new THREE.AnimationMixer(model);gltf.animations.forEach(clip=>mixer.clipAction(clip).play());assetMixers.push(mixer);}
+  }
+}
+let loadedModels = 0;
+Promise.allSettled([
+  ['models/amr-rigged.glb',replaceRobots],
+  ['models/truck.glb',replaceTrucks],
+  ['models/conveyor.glb',replaceConveyors],
+].map(([url,install]) => modelLoader.loadAsync(url).then(gltf => {
+  install(gltf); loadedModels++;
+  document.getElementById('modelStatus').textContent = `장비 모델 적용 중 ${loadedModels}/3`;
+}).catch(error => { console.error('장비 모델을 불러오지 못했습니다:',url,error); throw error; })))
+.then(results => {
+  const failed = results.filter(r=>r.status==='rejected').length;
+  document.getElementById('modelStatus').textContent = failed
+    ? `장비 모델 ${loadedModels}/3 적용 · 일부 장비는 기본 모형으로 표시됩니다. 새로고침해 주세요.`
+    : '랙 로봇 4대 · 출하 로봇 4대 · 화물차 3대 — 3D 모델 적용 완료';
+});
+const logistics = FactoryLogistics.create({
+  scene,live,robots:agvs,docks:DOCKS,colors:COLORS,makeItem,beltY:BELT_Y,lineLength:LINE_LEN,parkZ:PARK_Z,
+  feeders,rackSlots:warehouse.rackSlots,cellX:warehouse.cellX,onRead:()=>{live.flash=.6;}
+});
+function step(dt) {
+  logistics.step(dt);
+  if(live.flash>0){live.flash-=dt;live.scanLight.intensity=Math.max(0,live.flash)*4;}
+}
+function resetSim(){logistics.reset();live.flash=0;live.scanLight.intensity=0;}
+
+/* ───────── 패널 ───────── */
+const listEl = document.getElementById('lineList'), detailEl = document.getElementById('detail');
+const callout = document.getElementById('callout');
+let selected = live;
+listEl.innerHTML = LINES.map(L => `
+  <button type="button" class="line-item${L.live ? ' live' : ''}" data-id="${L.id}" aria-pressed="false">
+    <span class="sd"></span>
+    <span><span class="nm">${L.name}</span><span class="cd">${L.code}</span></span>
+    <span class="pill">${L.live ? '가동' : '준비 중'}</span>
+  </button>`).join('');
+listEl.addEventListener('click', e => {
+  const b = e.target.closest('.line-item'); if (!b) return;
+  select(lineObjs.find(o => o.L.id === b.dataset.id), true);
+});
+function renderDetail() {
+  const L = selected.L;
+  detailEl.innerHTML = `
+    <span class="dcode">${L.code} · ${L.live ? '시뮬레이터 연결됨' : '준비 중'}</span>
+    <h3>${L.name}</h3>
+    <p>${L.desc}</p>
+    <dl class="specs">${L.specs.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
+    ${L.url ? `<a class="cta" href="${L.url}">시뮬레이터 열기 <span aria-hidden="true">→</span></a>`
+            : `<span class="cta off">시뮬레이터 준비 중</span>`}`;
+  callout.innerHTML = `<span><span class="c-code">${L.code}</span><span class="c-name">${L.name}</span></span>` +
+    (L.url ? `<a class="go" href="${L.url}">열기 →</a>` : `<span class="soon">준비 중</span>`);
+  listEl.querySelectorAll('.line-item').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.id === L.id)));
+}
+function select(o, fly) {
+  selected = o; renderDetail(); callout.hidden = false;
+  if (fly) { setTab(null); flyTo([o.L.labelX-7,11,20],[o.L.labelX,1,6]); }
+}
+const dockRows = document.getElementById('dockRows');
+dockRows.innerHTML = DOCKS.map(d => `
+  <div class="dock" style="--c: var(${d.css})"><span class="nm">${d.name}</span>
+  <span class="bar"><i id="bar-${d.key}" style="background: var(${d.css})"></i></span><span class="n" id="n-${d.key}">0</span></div>`).join('');
+const $ = id => document.getElementById(id);
+$('robotJobs').innerHTML=[...agvs,...feeders].map(a=>'<div class="row" id="robot-job-'+a.index+'"><span class="k">'+(a.name||('출하 '+(a.index+1)))+'</span><span class="v">대기 중</span></div>').join('');
+function renderStats() {
+  const {readCount,elapsed,lastVerdict,dockCount,items}=logistics.state;
+  $('sRead').textContent = readCount;
+  $('sQueue').textContent = items.filter(it=>it.waiting).length;
+  $('sAgv').textContent = [...agvs,...feeders].filter(a => a.cargo).length + ' / 8';
+  const s = Math.floor(elapsed); $('sTime').textContent = String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+  $('sLast').textContent = lastVerdict ? `${lastVerdict.c.name} · ${lastVerdict.d.name}행` : '아직 없음';
+  $('sRackStock').textContent=logistics.supply.remaining+' / '+warehouse.rackSlots.length;
+  $('sRackFed').textContent=logistics.supply.state.fed;
+  $('restockBtn').disabled=logistics.supply.refillable===0;
+  for(const a of [...agvs,...feeders]){
+    const row=$('robot-job-'+a.index);row.dataset.state=a.state;row.dataset.holding=String(!!a.cargo);
+    row.querySelector('.v').textContent=a.label;
+  }
+  const worker=followRack?feeders[3]:(feeders.find(a=>a.state==='rack-pick'||a.state==='belt-place')||agvs.find(a=>a.state==='load')||agvs.find(a=>a.state==='unload')||agvs.find(a=>a.cargo));
+  $('robotAction').textContent=worker ? (worker.name||('출하 '+(worker.index+1)))+' · '+worker.label : '컨베이어에서 상자 집기 대기';
+  const max = Math.max(4, ...Object.values(dockCount));
+  for (const d of DOCKS) { $('n-' + d.key).textContent = dockCount[d.key]; $('bar-' + d.key).style.width = (dockCount[d.key] / max * 100) + '%'; }
+}
+
+/* ───────── 카메라 시점 ───────── */
+const VIEWS = {
+  all: [[-40, 43, 53], [3, 0, 0]],
+  lines: [[-26,22,29],[-7,1,-1]],
+  robots: [[20, 5.5, 24], [18.7, 0.7, 15.5]],
+  handling: [[15.7,4.8,16.5],[10.5,1.1,11]],
+  rack: [[5.8,4.55,10.45],[5,.95,5.35]],
+  dock: [[8, 18, 26], [26, 0, 0]],
+  vehicles: [[45, 10, 21], [34.4, 1.5, 0]],
+  top: [[0.5, 72, 0.6], [2, 0, 0]],
+};
+let tween = null;
+function flyTo(p, t) {
+  if (reduceMotion) { camera.position.set(...p); controls.target.set(...t); return; }
+  tween = { p0: camera.position.clone(), t0: controls.target.clone(), p1: new THREE.Vector3(...p), t1: new THREE.Vector3(...t), s: performance.now(), ms: 950 };
+}
+const tabs = document.querySelectorAll('.tabs button');
+function setTab(v) { tabs.forEach(b => b.setAttribute('aria-pressed', String(b.dataset.view === v))); callout.hidden=!!v;followRack=v==='rack';sceneLabels.forEach(label=>{label.visible=!followRack;}); }
+tabs.forEach(b => b.addEventListener('click', () => { setTab(b.dataset.view); flyTo(...VIEWS[b.dataset.view]); }));
+
+/* ───────── 포인터 ───────── */
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+const hits = lineObjs.map(o => o.hit);
+let hovered = null, downAt = null;
+function pick(ev) {
+  const r = renderer.domElement.getBoundingClientRect();
+  ndc.set((ev.clientX - r.left) / r.width * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  const h = ray.intersectObjects(hits)[0];
+  return h ? lineObjs.find(o => o.hit === h.object) : null;
+}
+renderer.domElement.addEventListener('pointermove', ev => {
+  if (ev.pointerType !== 'mouse') return;
+  hovered = pick(ev); stage.classList.toggle('hovering', !!hovered);
+});
+renderer.domElement.addEventListener('pointerleave', () => { hovered = null; stage.classList.remove('hovering'); });
+renderer.domElement.addEventListener('pointerdown', ev => { downAt = ev.button === 0 ? [ev.clientX, ev.clientY] : null; tween = null; });
+renderer.domElement.addEventListener('pointerup', ev => {
+  const start = downAt;
+  downAt = null;
+  if (ev.button !== 0 || !start || Math.hypot(ev.clientX - start[0], ev.clientY - start[1]) > 6) return;
+  const o = pick(ev); if (o) select(o, true);
+});
+
+/* ───────── 컨트롤 ───────── */
+let paused = false, speed = 1;
+const pauseBtn = $('pauseBtn'), runChip = $('runChip');
+pauseBtn.addEventListener('click', () => {
+  paused = !paused; pauseBtn.textContent = paused ? '재생' : '일시정지';
+  runChip.classList.toggle('paused', paused); $('runText').textContent = paused ? 'LINE 01 일시정지' : 'LINE 01 가동';
+});
+$('speedSel').addEventListener('change', e => { speed = parseFloat(e.target.value) || 1; });
+$('resetBtn').addEventListener('click', () => { resetSim(); renderStats(); });
+$('restockBtn').addEventListener('click',()=>{logistics.supply.refill();renderStats();});
+document.querySelector('.controls .label').textContent = `랙 로봇 4대 · 출하 로봇 4대`;
+
+/* ───────── 테마 ───────── */
+function applyTheme() {
+  scene.background = col('--stage');
+  mats.floor.color.copy(surfaceColor(tok('--floor')));
+  mats.wall.color.copy(surfaceColor(tok('--sc-wall')));
+  mats.out.color.copy(surfaceColor(tok('--sc-out')));
+  const acc = col('--accent'); accent.copy(acc); lineObjs.forEach(o => o.glowMat.color = acc);
+  const dark = scene.background.getHSL({}).l < 0.3;
+  hemi.intensity = dark ? 0.5 : 0.6; sun.intensity = dark ? 1.05 : 0.95;
+}
+applyTheme();
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+new MutationObserver(applyTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+/* ───────── 크기 ───────── */
+function resize() {
+  const w = stage.clientWidth, h = stage.clientHeight; if (!w || !h) return;
+  renderer.setSize(w, h, false); camera.aspect = w / h;
+  camera.fov = w < 600 ? 50 : 38; camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(stage); resize();
+
+/* ───────── 루프 ───────── */
+const clock = new THREE.Clock(), tmp = new THREE.Vector3();
+const rackTarget=new THREE.Vector3(),rackCamera=new THREE.Vector3(),rackOffset=new THREE.Vector3(.8,3.6,5.1);
+let statT = 0;
+select(live, false);
+setTab('all');
+function loop() {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  if (!paused) { step(dt * speed); assetMixers.forEach(mixer => mixer.update(dt * speed)); }
+  if (tween) {
+    let k = Math.min(1, (performance.now() - tween.s) / tween.ms); k = k < .5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+    camera.position.lerpVectors(tween.p0, tween.p1, k); controls.target.lerpVectors(tween.t0, tween.t1, k);
+    if (k >= 1) tween = null;
+  } else if(followRack) {
+    rackTarget.copy(feeders[3].g.position);rackTarget.y=.95;
+    rackCamera.copy(rackTarget).add(rackOffset);
+    const blend=reduceMotion?1:Math.min(1,dt*4);
+    camera.position.lerp(rackCamera,blend);controls.target.lerp(rackTarget,blend);
+  }
+  controls.update();
+  for (const o of lineObjs) {
+    const tSel = o === selected ? 1 : 0, tHov = o === hovered ? 1 : 0;
+    o.sel += (tSel - o.sel) * Math.min(1, dt * 8); o.hover += (tHov - o.hover) * Math.min(1, dt * 10);
+    o.glowMat.opacity = o.sel * 0.2 + o.hover * 0.1;
+    o.frame.emissive.copy(accent).multiplyScalar(o.sel * 0.35 + o.hover * 0.25);
+  }
+  // 말풍선 위치
+  if (!callout.hidden) {
+    tmp.set(selected.L.labelX,4.5,selected.L.labelZ).project(camera);
+    const vis = tmp.z < 1 && Math.abs(tmp.x) < 1.1 && Math.abs(tmp.y) < 1.1;
+    callout.style.visibility = vis ? 'visible' : 'hidden';
+    callout.style.left = ((tmp.x + 1) / 2 * stage.clientWidth) + 'px';
+    callout.style.top = ((1 - tmp.y) / 2 * stage.clientHeight) + 'px';
+  }
+  statT -= dt; if (statT <= 0) { statT = 0.2; renderStats(); }
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+}
+loop();
+})();
+</script>
+
+</body></html>
